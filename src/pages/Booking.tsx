@@ -127,9 +127,18 @@ export default function Booking() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!celebrity || !user) return;
-    if (!isMembership && !selectedDate) return;
-    if (isMembership && !cardHolderName.trim()) { alert('Please enter your name for the membership card.'); return; }
+    if (!celebrity || !user) {
+      alert('You must be signed in to book.');
+      return;
+    }
+    if (!isMembership && !selectedDate) {
+      alert('Please select a date.');
+      return;
+    }
+    if (isMembership && !cardHolderName.trim()) {
+      alert('Please enter your name for the membership card.');
+      return;
+    }
 
     setSubmitting(true);
     const accountNum = account?.account_number || '';
@@ -139,11 +148,16 @@ export default function Booking() {
       setUploadingPhoto(true);
       uploadedPhotoUrl = await uploadFile(photoFile, 'card-photos');
       setUploadingPhoto(false);
+      if (!uploadedPhotoUrl) {
+        alert('Failed to upload photo. Please try again.');
+        setSubmitting(false);
+        return;
+      }
     } else if (photoUrl) uploadedPhotoUrl = photoUrl;
 
     const cardNumber = isMembership && membership ? generateCardNumber(membership.name) : null;
 
-    const { data: bookingData, error } = await supabase.from('bookings').insert({
+    const bookingPayload: Record<string, any> = {
       user_id: user.id,
       celebrity_id: celebrity.id,
       membership_id: membershipId || null,
@@ -152,46 +166,68 @@ export default function Booking() {
       total_price: totalPrice,
       status: 'pending',
       special_requests: specialRequests || null,
-      account_number: accountNum,
+      account_number: accountNum || null,
       receipt_url: null,
       card_holder_name: isMembership ? cardHolderName : null,
       card_photo_url: uploadedPhotoUrl,
       card_number: cardNumber,
-    } as any).select();
+    };
 
-    if (!error && bookingData && bookingData.length > 0) {
-      const newBooking = bookingData[0] as any;
-      let uploadedReceiptUrl = null;
-      if (receiptFile) {
-        setUploadingReceipt(true);
-        uploadedReceiptUrl = await uploadFile(receiptFile, 'receipts');
-        setUploadingReceipt(false);
-      } else if (receiptUrl) uploadedReceiptUrl = receiptUrl;
+    console.log('Creating booking with payload:', bookingPayload);
 
-      if (uploadedReceiptUrl) {
-        await supabase.from('bookings').update({ receipt_url: uploadedReceiptUrl } as any).eq('id', newBooking.id);
-      }
+    const { data: bookingData, error } = await supabase.from('bookings').insert(bookingPayload).select();
 
-      if (isMembership && membership && cardNumber) {
-        const validFrom = new Date().toISOString().split('T')[0];
-        const validUntil = new Date();
-        validUntil.setMonth(validUntil.getMonth() + membership.duration_months);
-        await supabase.from('membership_cards').insert({
-          booking_id: newBooking.id,
-          card_holder_name: cardHolderName,
-          card_photo_url: uploadedPhotoUrl,
-          card_number: cardNumber,
-          celebrity_name: celebrity.name,
-          tier_name: membership.name,
-          valid_from: validFrom,
-          valid_until: validUntil.toISOString().split('T')[0],
-        } as any);
-      }
-
-      setSuccess(true);
-    } else {
-      alert('Failed to create booking. Please try again.');
+    if (error) {
+      console.error('Booking insert error:', error);
+      alert('Failed to create booking: ' + error.message + ' (Code: ' + error.code + ')');
+      setSubmitting(false);
+      return;
     }
+
+    if (!bookingData || bookingData.length === 0) {
+      alert('Booking was created but no data was returned. Please check your dashboard.');
+      setSubmitting(false);
+      return;
+    }
+
+    const newBooking = bookingData[0] as any;
+    let uploadedReceiptUrl = null;
+    if (receiptFile) {
+      setUploadingReceipt(true);
+      uploadedReceiptUrl = await uploadFile(receiptFile, 'receipts');
+      setUploadingReceipt(false);
+      if (uploadedReceiptUrl) {
+        const { error: updErr } = await supabase.from('bookings').update({ receipt_url: uploadedReceiptUrl }).eq('id', newBooking.id);
+        if (updErr) console.error('Receipt update error:', updErr);
+      }
+    } else if (receiptUrl) {
+      const { error: updErr } = await supabase.from('bookings').update({ receipt_url: receiptUrl }).eq('id', newBooking.id);
+      if (updErr) console.error('Receipt URL update error:', updErr);
+    }
+
+    if (isMembership && membership && cardNumber) {
+      const validFrom = new Date().toISOString().split('T')[0];
+      const validUntil = new Date();
+      validUntil.setMonth(validUntil.getMonth() + membership.duration_months);
+      const cardPayload = {
+        booking_id: newBooking.id,
+        card_holder_name: cardHolderName,
+        card_photo_url: uploadedPhotoUrl,
+        card_number: cardNumber,
+        celebrity_name: celebrity.name,
+        tier_name: membership.name,
+        valid_from: validFrom,
+        valid_until: validUntil.toISOString().split('T')[0],
+      };
+      console.log('Creating membership card:', cardPayload);
+      const { error: cardError } = await supabase.from('membership_cards').insert(cardPayload);
+      if (cardError) {
+        console.error('Membership card insert error:', cardError);
+        alert('Booking created, but membership card generation failed: ' + cardError.message);
+      }
+    }
+
+    setSuccess(true);
     setSubmitting(false);
   }
 

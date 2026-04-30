@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import Navbar from '@/components/Navbar';
+import ChatWidget from '@/components/ChatWidget';
 import Home from '@/pages/Home';
 import Celebrities from '@/pages/Celebrities';
 import CelebrityDetail from '@/pages/CelebrityDetail';
@@ -38,6 +39,7 @@ function AppRoutes() {
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
       </Routes>
+      <ChatWidget />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, CheckCircle, XCircle, Plus, Pencil, Trash2, Star, DollarSign, MapPin, Calendar, Receipt, Building2, FileImage, Crown, Gem, Shield, ChevronUp, Save, X } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, Plus, Pencil, Trash2, Star, DollarSign, MapPin, Calendar, Receipt, Building2, FileImage, Crown, Gem, Shield, ChevronUp, Save, X, MessageCircle, Send } from 'lucide-react';
 
 interface BookingWithDetails {
   id: string;
@@ -60,6 +60,24 @@ interface Membership {
   created_at: string;
 }
 
+interface ChatUser {
+  user_id: string;
+  email: string;
+  full_name: string | null;
+  last_message: string;
+  last_message_at: string;
+  unread_count: number;
+}
+
+interface ChatMessage {
+  id: string;
+  content: string;
+  sender_id: string;
+  is_read: boolean;
+  created_at: string;
+  is_me: boolean;
+}
+
 const CATEGORIES = ['Actor', 'Musician', 'Athlete', 'Influencer', 'Comedian', 'Model', 'Director'];
 
 export default function AdminDashboard() {
@@ -79,6 +97,15 @@ export default function AdminDashboard() {
   const [expandedBooking, setExpandedBooking] = useState<string | null>(null);
   const [editAccountNum, setEditAccountNum] = useState('');
   const [editAccountName, setEditAccountName] = useState('');
+
+  // Chat state
+  const [chatUsers, setChatUsers] = useState<ChatUser[]>([]);
+  const [selectedChatUser, setSelectedChatUser] = useState<ChatUser | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatReply, setChatReply] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
+  const chatMessagesEndRef = useRef<HTMLDivElement>(null);
 
   const [form, setForm] = useState({
     name: '', bio: '', image_url: '', country: '', category: '', base_price: 0, available_dates: '',
@@ -135,6 +162,145 @@ export default function AdminDashboard() {
     }
     setLoading(false);
   }
+
+  // Chat functions
+  async function fetchChatUsers() {
+    const { data, error } = await supabase.from('messages').select('*').order('created_at', { ascending: false });
+    if (error || !data) return;
+
+    const msgs = data as any[];
+    // Group by user_id and build chat user list
+    const userMap = new Map<string, { last_message: string; last_message_at: string; unread_count: number }>();
+    const seenIds = new Set<string>();
+
+    msgs.forEach((m) => {
+      const uid = m.user_id;
+      if (!seenIds.has(uid)) {
+        seenIds.add(uid);
+        userMap.set(uid, {
+          last_message: m.content,
+          last_message_at: m.created_at,
+          unread_count: 0,
+        });
+      }
+      if (!m.is_read && m.sender_id !== uid) {
+        const entry = userMap.get(uid);
+        if (entry) entry.unread_count++;
+      }
+    });
+
+    // Fetch profile info for each user
+    const userIds = Array.from(userMap.keys());
+    if (userIds.length === 0) {
+      setChatUsers([]);
+      return;
+    }
+
+    const { data: profilesData, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, email, full_name')
+      .in('id', userIds);
+
+    if (profilesError || !profilesData) return;
+
+    const users: ChatUser[] = (profilesData as any[]).map((p) => {
+      const info = userMap.get(p.id);
+      return {
+        user_id: p.id,
+        email: p.email,
+        full_name: p.full_name,
+        last_message: info?.last_message || '',
+        last_message_at: info?.last_message_at || '',
+        unread_count: info?.unread_count || 0,
+      };
+    });
+
+    // Sort by last message time descending
+    users.sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
+    setChatUsers(users);
+  }
+
+  async function fetchConversation(userId: string) {
+    setChatLoading(true);
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
+
+    if (!error && data) {
+      const formatted = (data as any[]).map((m) => ({
+        ...m,
+        is_me: m.sender_id !== userId,
+      }));
+      setChatMessages(formatted);
+
+      // Mark all user messages as read
+      await supabase.from('messages').update({ is_read: true }).eq('user_id', userId).eq('is_read', false);
+
+      // Update unread count in user list
+      setChatUsers((prev) => prev.map((u) => (u.user_id === userId ? { ...u, unread_count: 0 } : u)));
+    }
+    setChatLoading(false);
+  }
+
+  async function sendAdminReply(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (!chatReply.trim() || !selectedChatUser || sendingReply) return;
+
+    setSendingReply(true);
+    const { error } = await supabase.from('messages').insert({
+      user_id: selectedChatUser.user_id,
+      sender_id: (await supabase.auth.getUser()).data.user?.id,
+      content: chatReply.trim(),
+    });
+
+    if (error) {
+      console.error('Admin reply error:', error);
+      alert('Failed to send: ' + error.message);
+    }
+
+    setChatReply('');
+    setSendingReply(false);
+    await fetchConversation(selectedChatUser.user_id);
+  }
+
+  useEffect(() => {
+    if (activeTab === 'messages') {
+      fetchChatUsers();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    // Subscribe to new messages for admin
+    const channel = supabase
+      .channel('admin-messages')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+        },
+        () => {
+          if (activeTab === 'messages') {
+            fetchChatUsers();
+            if (selectedChatUser) {
+              fetchConversation(selectedChatUser.user_id);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [activeTab, selectedChatUser]);
+
+  useEffect(() => {
+    chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
 
   async function confirmBooking(id: string) {
     const { error } = await supabase.from('bookings').update({ status: 'confirmed' }).eq('id', id);
@@ -369,6 +535,14 @@ export default function AdminDashboard() {
           </TabsTrigger>
           <TabsTrigger value="accounts" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">
             <Building2 className="w-4 h-4 mr-1" /> Accounts
+          </TabsTrigger>
+          <TabsTrigger value="messages" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm relative">
+            <MessageCircle className="w-4 h-4 mr-1" /> Messages
+            {chatUsers.some(u => u.unread_count > 0) && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                {chatUsers.filter(u => u.unread_count > 0).length}
+              </span>
+            )}
           </TabsTrigger>
         </TabsList>
 
@@ -652,6 +826,137 @@ export default function AdminDashboard() {
               {accounts.length === 0 && <div className="text-center py-10 text-gray-500">No payment accounts found.</div>}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* MESSAGES TAB */}
+        <TabsContent value="messages">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-[600px]">
+            {/* User List */}
+            <Card className="md:col-span-1 overflow-hidden flex flex-col">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <MessageCircle className="w-5 h-5" /> Conversations
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex-1 overflow-y-auto p-0">
+                {chatUsers.length === 0 ? (
+                  <div className="text-center py-10 text-gray-400 text-sm px-4">
+                    <MessageCircle className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+                    <p>No messages yet.</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-100">
+                    {chatUsers.map((u) => (
+                      <button
+                        key={u.user_id}
+                        onClick={() => {
+                          setSelectedChatUser(u);
+                          fetchConversation(u.user_id);
+                        }}
+                        className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition flex items-center gap-3 ${
+                          selectedChatUser?.user_id === u.user_id ? 'bg-indigo-50 border-r-2 border-indigo-600' : ''
+                        }`}
+                      >
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm shrink-0">
+                          {(u.full_name || u.email).charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-sm truncate">
+                              {u.full_name || u.email}
+                            </span>
+                            {u.unread_count > 0 && (
+                              <span className="w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center shrink-0 ml-1">
+                                {u.unread_count}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500 truncate">{u.last_message}</p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">
+                            {new Date(u.last_message_at).toLocaleString()}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Chat Panel */}
+            <Card className="md:col-span-2 overflow-hidden flex flex-col">
+              {selectedChatUser ? (
+                <>
+                  <CardHeader className="pb-3 border-b shrink-0">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-xs">
+                        {(selectedChatUser.full_name || selectedChatUser.email).charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="font-semibold">{selectedChatUser.full_name || selectedChatUser.email}</div>
+                        <div className="text-xs text-gray-400 font-normal">{selectedChatUser.email}</div>
+                      </div>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
+                    {chatLoading ? (
+                      <div className="flex justify-center py-10">
+                        <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                      </div>
+                    ) : chatMessages.length === 0 ? (
+                      <div className="text-center py-10 text-gray-400 text-sm">
+                        <p>No messages in this conversation yet.</p>
+                      </div>
+                    ) : (
+                      chatMessages.map((msg) => (
+                        <div key={msg.id} className={`flex ${msg.is_me ? 'justify-end' : 'justify-start'}`}>
+                          <div
+                            className={`max-w-[70%] px-3 py-2 rounded-xl text-sm ${
+                              msg.is_me
+                                ? 'bg-indigo-600 text-white rounded-br-none'
+                                : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none shadow-sm'
+                            }`}
+                          >
+                            <p>{msg.content}</p>
+                            <p className={`text-[10px] mt-1 ${msg.is_me ? 'text-indigo-200' : 'text-gray-400'}`}>
+                              {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    <div ref={chatMessagesEndRef} />
+                  </CardContent>
+                  <div className="p-3 bg-white border-t shrink-0">
+                    <form onSubmit={sendAdminReply} className="flex items-center gap-2">
+                      <Input
+                        placeholder="Type your reply..."
+                        value={chatReply}
+                        onChange={(e) => setChatReply(e.target.value)}
+                        className="rounded-xl h-10"
+                        disabled={sendingReply}
+                      />
+                      <Button
+                        type="submit"
+                        size="sm"
+                        className="rounded-xl h-10 px-3 bg-indigo-600 hover:bg-indigo-700"
+                        disabled={sendingReply || !chatReply.trim()}
+                      >
+                        {sendingReply ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                      </Button>
+                    </form>
+                  </div>
+                </>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-gray-400">
+                  <div className="text-center">
+                    <MessageCircle className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                    <p>Select a user to view the conversation</p>
+                  </div>
+                </div>
+              )}
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
 
