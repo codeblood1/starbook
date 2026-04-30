@@ -1,7 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import Navbar from '@/components/Navbar';
-import ChatWidget from '@/components/ChatWidget';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import Home from '@/pages/Home';
 import Celebrities from '@/pages/Celebrities';
@@ -41,7 +40,6 @@ function AppRoutes() {
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
         </Routes>
-        <ChatWidget />
       </ErrorBoundary>
     </div>
   );
