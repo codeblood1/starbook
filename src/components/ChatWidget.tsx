@@ -87,7 +87,7 @@ export default function ChatWidget() {
             table: 'messages',
             filter: `user_id=eq.${user.id}`,
           },
-          (payload) => {
+          (payload: any) => {
             const newMsg = payload.new as any;
             const formatted = {
               ...newMsg,
