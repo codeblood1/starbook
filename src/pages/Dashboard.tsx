@@ -71,19 +71,18 @@ export default function Dashboard() {
       .order('created_at', { ascending: false });
 
     if (!error && data) {
-      const formatted = (data as any[]).map((b: any) => ({
+      setBookings((data as any[]).map(b => ({
         ...b,
         celebrity: b.celebrity && !Array.isArray(b.celebrity) ? b.celebrity : (b.celebrity?.[0] || null),
         membership: b.membership && !Array.isArray(b.membership) ? b.membership : (b.membership?.[0] || null)
-      }));
-      setBookings(formatted);
+      })));
     }
     setLoading(false);
   }
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'pending': return <Clock className="w-4 h-4 text-yellow-500" />;
+      case 'pending': return <Clock className="w-4 h-4 text-amber-500" />;
       case 'confirmed': return <CheckCircle className="w-4 h-4 text-green-500" />;
       case 'cancelled': return <XCircle className="w-4 h-4 text-red-500" />;
       default: return null;
@@ -92,7 +91,7 @@ export default function Dashboard() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'pending': return <Badge variant="outline" className="border-yellow-300 text-yellow-700 bg-yellow-50">Pending</Badge>;
+      case 'pending': return <Badge variant="outline" className="border-amber-300 text-amber-700 bg-amber-50">Pending</Badge>;
       case 'confirmed': return <Badge variant="outline" className="border-green-300 text-green-700 bg-green-50">Confirmed</Badge>;
       case 'cancelled': return <Badge variant="outline" className="border-red-300 text-red-700 bg-red-50">Cancelled</Badge>;
       default: return null;
@@ -118,261 +117,224 @@ export default function Dashboard() {
   }
 
   async function viewCard(bookingId: string) {
-    const { data, error } = await supabase
-      .from('membership_cards')
-      .select('*')
-      .eq('booking_id', bookingId)
-      .single();
-    if (!error && data) {
-      setCardDialog(data as MembershipCardRecord);
-    }
+    const { data, error } = await supabase.from('membership_cards').select('*').eq('booking_id', bookingId).single();
+    if (!error && data) setCardDialog(data as MembershipCardRecord);
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-10">
-      <h1 className="text-3xl font-bold mb-2">My Bookings</h1>
-      <p className="text-gray-500 mb-8">Manage and track your celebrity bookings and memberships.</p>
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white py-10 px-4">
+      <div className="max-w-5xl mx-auto">
+        <h1 className="text-4xl font-black mb-2">My Bookings</h1>
+        <p className="text-gray-500 mb-8 text-lg">Manage and track your celebrity bookings and memberships.</p>
 
-      {loading ? (
-        <div className="flex justify-center py-20">
-          <Loader2 className="w-10 h-10 animate-spin text-indigo-600" />
-        </div>
-      ) : bookings.length === 0 ? (
-        <Card className="text-center py-16">
-          <CardContent>
-            <Star className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold mb-2">No bookings yet</h2>
-            <p className="text-gray-500 mb-6">Start by browsing our celebrity listings and book your favorite star.</p>
-            <Button onClick={() => navigate('/celebrities')}>
-              Browse Celebrities
-              <ArrowRight className="w-4 h-4 ml-2" />
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {bookings.map((booking) => (
-            <Card key={booking.id} className="overflow-hidden">
-              <CardContent className="p-0">
-                <div className="flex flex-col md:flex-row">
-                  {/* Celebrity Image */}
-                  <div className="w-full md:w-48 h-48 md:h-auto bg-gray-100 flex-shrink-0">
-                    {booking.celebrity?.image_url ? (
-                      <img src={booking.celebrity.image_url} alt={booking.celebrity?.name || ''} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-gray-400">
-                        <Star className="w-12 h-12" />
-                      </div>
-                    )}
-                  </div>
+        {loading ? (
+          <div className="flex justify-center py-20"><Loader2 className="w-12 h-12 animate-spin text-indigo-600" /></div>
+        ) : bookings.length === 0 ? (
+          <Card className="text-center py-20 rounded-3xl border-dashed border-2 border-gray-200">
+            <CardContent>
+              <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-6">
+                <Star className="w-10 h-10 text-gray-300" />
+              </div>
+              <h2 className="text-2xl font-bold mb-2">No bookings yet</h2>
+              <p className="text-gray-500 mb-8 max-w-md mx-auto">Start by browsing our celebrity listings and book your favorite star.</p>
+              <Button onClick={() => navigate('/celebrities')} className="bg-indigo-600 hover:bg-indigo-700 h-12 px-8 rounded-xl text-lg font-bold">
+                Browse Celebrities <ArrowRight className="w-5 h-5 ml-2" />
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-6">
+            {bookings.map((booking) => (
+              <Card key={booking.id} className="overflow-hidden rounded-2xl border-gray-100 shadow-sm hover:shadow-md transition">
+                <CardContent className="p-0">
+                  <div className="flex flex-col md:flex-row">
+                    <div className="w-full md:w-52 h-52 md:h-auto bg-gray-100 flex-shrink-0">
+                      {booking.celebrity?.image_url ? (
+                        <img src={booking.celebrity.image_url} alt={booking.celebrity?.name || ''} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-400">
+                          <Star className="w-16 h-16" />
+                        </div>
+                      )}
+                    </div>
 
-                  {/* Booking Details */}
-                  <div className="p-5 flex-1 space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-xl font-semibold">{booking.celebrity?.name || 'Unknown Celebrity'}</h3>
-                          {booking.membership && (
-                            <Badge className="bg-purple-100 text-purple-700">
-                              <Crown className="w-3 h-3 mr-1" />
-                              {booking.membership.name}
-                            </Badge>
+                    <div className="p-6 flex-1 space-y-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <h3 className="text-2xl font-bold">{booking.celebrity?.name || 'Unknown Celebrity'}</h3>
+                            {booking.membership && (
+                              <Badge className={`${
+                                booking.membership.name === 'Platinum' ? 'bg-purple-100 text-purple-700' :
+                                booking.membership.name === 'Gold' ? 'bg-amber-100 text-amber-700' :
+                                'bg-gray-100 text-gray-700'
+                              } text-sm px-3 py-1`}>
+                                <Crown className="w-3 h-3 mr-1" />{booking.membership.name}
+                              </Badge>
+                            )}
+                          </div>
+                          {booking.celebrity?.category && (
+                            <span className="text-sm text-gray-400">{booking.celebrity.category}</span>
                           )}
                         </div>
-                        {booking.celebrity?.category && (
-                          <span className="text-sm text-gray-500">{booking.celebrity.category}</span>
+                        <div className="flex items-center gap-2">
+                          {getStatusIcon(booking.status)}
+                          {getStatusBadge(booking.status)}
+                        </div>
+                      </div>
+
+                      <div className="border-t border-gray-100 my-3" />
+
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                        {booking.booking_date && (
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-gray-400" />
+                            <span className="font-medium">{new Date(booking.booking_date).toLocaleDateString()}</span>
+                          </div>
                         )}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {getStatusIcon(booking.status)}
-                        {getStatusBadge(booking.status)}
-                      </div>
-                    </div>
-
-                    <div className="border-t my-2" />
-
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-                      {booking.booking_date && (
+                        {booking.num_tickets > 0 && (
+                          <div className="flex items-center gap-2">
+                            <Ticket className="w-4 h-4 text-gray-400" />
+                            <span className="font-medium">{booking.num_tickets} ticket{booking.num_tickets !== 1 ? 's' : ''}</span>
+                          </div>
+                        )}
                         <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4 text-gray-400" />
-                          <span>{new Date(booking.booking_date).toLocaleDateString()}</span>
+                          <DollarSign className="w-4 h-4 text-gray-400" />
+                          <span className="font-bold text-indigo-600 text-base">${booking.total_price.toLocaleString()}</span>
+                        </div>
+                      </div>
+
+                      {booking.account_number && (
+                        <div className="flex items-center gap-2 text-sm bg-gray-50 p-3 rounded-xl">
+                          <Building2 className="w-4 h-4 text-gray-400" />
+                          <span className="text-gray-500">Paid to:</span>
+                          <span className="font-mono font-bold text-gray-800">{booking.account_number}</span>
                         </div>
                       )}
-                      {booking.num_tickets > 0 && (
-                        <div className="flex items-center gap-2">
-                          <Ticket className="w-4 h-4 text-gray-400" />
-                          <span>{booking.num_tickets} ticket{booking.num_tickets !== 1 ? 's' : ''}</span>
+
+                      {booking.card_number && (
+                        <div className="flex items-center gap-2 text-sm bg-purple-50 p-3 rounded-xl border border-purple-100">
+                          <IdCard className="w-4 h-4 text-purple-500" />
+                          <span className="text-gray-500">Card #:</span>
+                          <span className="font-mono font-bold text-purple-700">{booking.card_number}</span>
                         </div>
                       )}
-                      <div className="flex items-center gap-2">
-                        <DollarSign className="w-4 h-4 text-gray-400" />
-                        <span className="font-semibold text-indigo-600">${booking.total_price.toLocaleString()}</span>
+
+                      {booking.special_requests && (
+                        <div className="bg-gray-50 p-3 rounded-xl text-sm">
+                          <span className="font-semibold">Special Requests:</span>{' '}
+                          <span className="text-gray-600">{booking.special_requests}</span>
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-3 flex-wrap pt-2">
+                        {booking.receipt_url ? (
+                          <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setReceiptDialog(booking.receipt_url)}>
+                            <FileImage className="w-4 h-4 mr-1 text-green-600" /> View Receipt
+                          </Button>
+                        ) : (
+                          <div className="flex items-center gap-1 text-sm text-amber-600 bg-amber-50 px-3 py-1.5 rounded-xl">
+                            <Upload className="w-4 h-4" /> Receipt pending
+                          </div>
+                        )}
+                        {booking.membership && booking.card_number && booking.status === 'confirmed' && (
+                          <Button size="sm" className="bg-gradient-to-r from-purple-500 to-violet-500 hover:from-purple-600 hover:to-violet-600 text-white rounded-xl shadow-md shadow-purple-200" onClick={() => viewCard(booking.id)}>
+                            <IdCard className="w-4 h-4 mr-1" /> View Card
+                          </Button>
+                        )}
+                        <span className="text-xs text-gray-400 ml-auto">Booked {new Date(booking.created_at).toLocaleDateString()}</span>
                       </div>
                     </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
-                    {booking.account_number && (
-                      <div className="flex items-center gap-2 text-sm bg-gray-50 p-2 rounded">
-                        <Building2 className="w-4 h-4 text-gray-400" />
-                        <span className="text-gray-500">Paid to:</span>
-                        <span className="font-mono font-medium">{booking.account_number}</span>
-                      </div>
-                    )}
+        {/* Receipt Dialog */}
+        <Dialog open={!!receiptDialog} onOpenChange={() => setReceiptDialog(null)}>
+          <DialogContent className="max-w-2xl rounded-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2"><Receipt className="w-5 h-5" /> Payment Receipt</DialogTitle>
+            </DialogHeader>
+            {receiptDialog && (
+              <div className="mt-2">
+                <img src={receiptDialog} alt="Receipt" className="w-full rounded-xl border border-gray-200" />
+                <div className="flex justify-center mt-4">
+                  <Button variant="outline" className="rounded-xl" onClick={() => window.open(receiptDialog!, '_blank')}>Open in New Tab</Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
-                    {booking.card_number && (
-                      <div className="flex items-center gap-2 text-sm bg-purple-50 p-2 rounded">
-                        <IdCard className="w-4 h-4 text-purple-500" />
-                        <span className="text-gray-500">Card #:</span>
-                        <span className="font-mono font-medium text-purple-700">{booking.card_number}</span>
-                      </div>
-                    )}
+        {/* Membership Card Dialog */}
+        <Dialog open={!!cardDialog} onOpenChange={() => setCardDialog(null)}>
+          <DialogContent className="max-w-md p-0 overflow-hidden rounded-3xl border-0">
+            {cardDialog && (
+              <div className={`relative bg-gradient-to-br ${getTierColor(cardDialog.tier_name)} border-2 ${getTierBorder(cardDialog.tier_name)} rounded-3xl overflow-hidden`}>
+                <div className="absolute inset-0 opacity-10">
+                  <div className="absolute top-0 right-0 w-40 h-40 rounded-full bg-white -translate-y-1/2 translate-x-1/2" />
+                  <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full bg-white translate-y-1/2 -translate-x-1/2" />
+                </div>
 
-                    {booking.special_requests && (
-                      <div className="bg-gray-50 p-3 rounded-lg text-sm">
-                        <span className="font-medium">Special Requests:</span>{' '}
-                        <span className="text-gray-600">{booking.special_requests}</span>
-                      </div>
-                    )}
+                <div className="relative p-8">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-2">
+                      <Star className="w-6 h-6 text-current fill-current" />
+                      <span className="font-bold text-lg tracking-wider">STARBOOKER</span>
+                    </div>
+                    <Badge className="bg-white/40 text-current font-bold text-xs backdrop-blur-sm border-0">
+                      {cardDialog.tier_name.toUpperCase()}
+                    </Badge>
+                  </div>
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-3 flex-wrap">
-                      {booking.receipt_url ? (
-                        <Button size="sm" variant="outline" onClick={() => setReceiptDialog(booking.receipt_url)}>
-                          <FileImage className="w-4 h-4 mr-1" />
-                          View Receipt
-                        </Button>
-                      ) : (
-                        <div className="flex items-center gap-1 text-sm text-orange-500">
-                          <Upload className="w-4 h-4" />
-                          Receipt pending upload
-                        </div>
-                      )}
-                      
-                      {booking.membership && booking.card_number && booking.status === 'confirmed' && (
-                        <Button size="sm" className="bg-purple-600 hover:bg-purple-700 text-white" onClick={() => viewCard(booking.id)}>
-                          <IdCard className="w-4 h-4 mr-1" />
-                          View Card
-                        </Button>
-                      )}
-                      
-                      <span className="text-xs text-gray-400">
-                        Booked on {new Date(booking.created_at).toLocaleDateString()}
-                      </span>
+                  {cardDialog.card_photo_url ? (
+                    <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white/50 mx-auto mb-5 shadow-xl">
+                      <img src={cardDialog.card_photo_url} alt="Member" className="w-full h-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="w-24 h-24 rounded-full bg-white/30 flex items-center justify-center mx-auto mb-5 border-4 border-white/50">
+                      <User className="w-12 h-12 text-current/60" />
+                    </div>
+                  )}
+
+                  <div className="text-center mb-5">
+                    <h3 className="font-bold text-2xl">{cardDialog.card_holder_name}</h3>
+                    <p className="text-sm opacity-70">{cardDialog.celebrity_name} Fan Club</p>
+                  </div>
+
+                  <div className="bg-white/30 rounded-xl p-4 mb-5 backdrop-blur-sm">
+                    <div className="flex items-center justify-center gap-2">
+                      <IdCard className="w-4 h-4 text-current/60" />
+                      <span className="font-mono text-sm font-bold tracking-widest">{cardDialog.card_number}</span>
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
 
-      {/* Receipt Dialog */}
-      <Dialog open={!!receiptDialog} onOpenChange={() => setReceiptDialog(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Receipt className="w-5 h-5" />
-              Payment Receipt
-            </DialogTitle>
-          </DialogHeader>
-          {receiptDialog && (
-            <div className="mt-2">
-              <img src={receiptDialog} alt="Receipt" className="w-full rounded-lg border" />
-              <div className="flex justify-center mt-3">
-                <Button variant="outline" onClick={() => window.open(receiptDialog!, '_blank')}>
-                  Open in New Tab
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Membership Card Dialog */}
-      <Dialog open={!!cardDialog} onOpenChange={() => setCardDialog(null)}>
-        <DialogContent className="max-w-md p-0 overflow-hidden">
-          {cardDialog && (
-            <div className={`relative bg-gradient-to-br ${getTierColor(cardDialog.tier_name)} border-2 ${getTierBorder(cardDialog.tier_name)} rounded-xl overflow-hidden`}>
-              {/* Background pattern */}
-              <div className="absolute inset-0 opacity-10">
-                <div className="absolute top-0 right-0 w-40 h-40 rounded-full bg-white -translate-y-1/2 translate-x-1/2" />
-                <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full bg-white translate-y-1/2 -translate-x-1/2" />
-              </div>
-
-              <div className="relative p-6">
-                {/* Header */}
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-2">
-                    <Star className="w-6 h-6 text-current" />
-                    <span className="font-bold text-lg tracking-wider">STARBOOKER</span>
+                  <div className="flex justify-between text-xs opacity-70">
+                    <div><span className="block font-bold">VALID FROM</span><span>{new Date(cardDialog.valid_from).toLocaleDateString()}</span></div>
+                    <div className="text-right"><span className="block font-bold">VALID UNTIL</span><span>{new Date(cardDialog.valid_until).toLocaleDateString()}</span></div>
                   </div>
-                  <Badge className="bg-white/50 text-current font-bold text-xs">
-                    {cardDialog.tier_name.toUpperCase()}
-                  </Badge>
-                </div>
 
-                {/* Photo */}
-                {cardDialog.card_photo_url ? (
-                  <div className="w-20 h-20 rounded-full overflow-hidden border-4 border-white/50 mx-auto mb-4 shadow-lg">
-                    <img src={cardDialog.card_photo_url} alt="Member" className="w-full h-full object-cover" />
-                  </div>
-                ) : (
-                  <div className="w-20 h-20 rounded-full bg-white/30 flex items-center justify-center mx-auto mb-4 border-4 border-white/50">
-                    <User className="w-10 h-10 text-current/60" />
-                  </div>
-                )}
-
-                {/* Member Info */}
-                <div className="text-center mb-4">
-                  <h3 className="font-bold text-xl">{cardDialog.card_holder_name}</h3>
-                  <p className="text-sm opacity-75">{cardDialog.celebrity_name} Fan Club</p>
-                </div>
-
-                {/* Card Number */}
-                <div className="bg-white/30 rounded-lg p-3 mb-4 backdrop-blur-sm">
-                  <div className="flex items-center justify-center gap-1">
-                    <IdCard className="w-4 h-4 text-current/60" />
-                    <span className="font-mono text-sm font-bold tracking-widest">{cardDialog.card_number}</span>
+                  <div className="mt-5 pt-4 border-t border-current/20 flex items-center justify-between">
+                    <span className="text-xs font-bold opacity-60">MEMBERSHIP CARD</span>
+                    {cardDialog.tier_name === 'Gold' && <Crown className="w-5 h-5 text-amber-700" />}
+                    {cardDialog.tier_name === 'Platinum' && <Gem className="w-5 h-5 text-purple-700" />}
+                    {cardDialog.tier_name === 'Silver' && <Shield className="w-5 h-5 text-gray-600" />}
                   </div>
                 </div>
 
-                {/* Validity */}
-                <div className="flex justify-between text-xs opacity-70">
-                  <div>
-                    <span className="block font-semibold">VALID FROM</span>
-                    <span>{new Date(cardDialog.valid_from).toLocaleDateString()}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="block font-semibold">VALID UNTIL</span>
-                    <span>{new Date(cardDialog.valid_until).toLocaleDateString()}</span>
-                  </div>
-                </div>
-
-                {/* Footer */}
-                <div className="mt-4 pt-4 border-t border-current/20 flex items-center justify-between">
-                  <span className="text-xs font-semibold opacity-60">MEMBERSHIP CARD</span>
-                  {cardDialog.tier_name === 'Gold' && <Crown className="w-5 h-5 text-amber-600" />}
-                  {cardDialog.tier_name === 'Platinum' && <Gem className="w-5 h-5 text-purple-600" />}
-                  {cardDialog.tier_name === 'Silver' && <Shield className="w-5 h-5 text-gray-500" />}
+                <div className="bg-white/20 p-4 flex justify-center backdrop-blur-sm">
+                  <Button variant="ghost" size="sm" className="text-current font-bold rounded-xl" onClick={() => alert('Screenshot this card to save it!')}>
+                    <Download className="w-4 h-4 mr-2" /> Save Card
+                  </Button>
                 </div>
               </div>
-
-              {/* Download button */}
-              <div className="bg-white/20 p-3 flex justify-center backdrop-blur-sm">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-current font-semibold"
-                  onClick={() => alert('Screenshot this card to save it!')}
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Save Card
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+            )}
+          </DialogContent>
+        </Dialog>
+      </div>
     </div>
   );
 }

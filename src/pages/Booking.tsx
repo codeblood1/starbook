@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, Calendar, Loader2, Ticket, DollarSign, Star, CheckCircle, Building2, Upload, CreditCard, Crown, FileImage, User, ImageIcon, IdCard } from 'lucide-react';
+import { ArrowLeft, Calendar, Loader2, Ticket, DollarSign, Star, CheckCircle, Building2, Upload, CreditCard, Crown, FileImage, User, ImageIcon, IdCard, Gem, Shield, Check } from 'lucide-react';
 
 interface Celebrity {
   id: string;
@@ -39,6 +39,12 @@ interface CelebrityAccount {
   account_number: string;
   bank_name: string;
 }
+
+const TIER_ICONS: Record<string, React.ReactNode> = {
+  Silver: <Shield className="w-5 h-5 text-gray-500" />,
+  Gold: <Crown className="w-5 h-5 text-amber-500" />,
+  Platinum: <Gem className="w-5 h-5 text-purple-500" />,
+};
 
 export default function Booking() {
   const { id } = useParams<{ id: string }>();
@@ -81,51 +87,25 @@ export default function Booking() {
 
   async function fetchCelebrityData() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('celebrities')
-      .select('*')
-      .eq('id', id)
-      .single();
-    if (!error && data) {
+    const { data } = await supabase.from('celebrities').select('*').eq('id', id).single();
+    if (data) {
       const c = data as any;
-      const celeb: Celebrity = {
-        ...c,
-        available_dates: Array.isArray(c.available_dates) ? c.available_dates : []
-      };
-      setCelebrity(celeb);
-      if (!isMembership && celeb.available_dates.length > 0) {
-        setSelectedDate(celeb.available_dates[0]);
-      }
+      setCelebrity({ ...c, available_dates: Array.isArray(c.available_dates) ? c.available_dates : [] });
+      if (!isMembership && c.available_dates.length > 0) setSelectedDate(c.available_dates[0]);
     }
 
     if (membershipId) {
-      const { data: mData } = await supabase
-        .from('memberships')
-        .select('*')
-        .eq('id', membershipId)
-        .single();
-      if (mData) {
-        setMembership({
-          ...(mData as any),
-          benefits: Array.isArray((mData as any).benefits) ? (mData as any).benefits : []
-        });
-      }
+      const { data: mData } = await supabase.from('memberships').select('*').eq('id', membershipId).single();
+      if (mData) setMembership({ ...(mData as any), benefits: Array.isArray((mData as any).benefits) ? (mData as any).benefits : [] });
     }
 
-    const { data: aData } = await supabase
-      .from('celebrity_accounts')
-      .select('*')
-      .eq('celebrity_id', id)
-      .eq('is_active', true)
-      .single();
+    const { data: aData } = await supabase.from('celebrity_accounts').select('*').eq('celebrity_id', id).eq('is_active', true).single();
     if (aData) setAccount(aData as CelebrityAccount);
 
     setLoading(false);
   }
 
-  const totalPrice = isMembership && membership
-    ? membership.price
-    : (celebrity ? celebrity.base_price * numTickets : 0);
+  const totalPrice = isMembership && membership ? membership.price : (celebrity ? celebrity.base_price * numTickets : 0);
 
   function generateCardNumber(tier: string): string {
     const year = new Date().getFullYear();
@@ -139,16 +119,8 @@ export default function Booking() {
     if (!user) return null;
     const fileExt = file.name.split('.').pop();
     const fileName = `${path}/${user.id}/${Date.now()}.${fileExt}`;
-    
-    const { error } = await supabase.storage
-      .from('receipts')
-      .upload(fileName, file, { upsert: true });
-    
-    if (error) {
-      console.error('Upload error:', error);
-      return null;
-    }
-
+    const { error } = await supabase.storage.from('receipts').upload(fileName, file, { upsert: true });
+    if (error) { console.error('Upload error:', error); return null; }
     const { data } = supabase.storage.from('receipts').getPublicUrl(fileName);
     return data?.publicUrl || null;
   }
@@ -157,28 +129,19 @@ export default function Booking() {
     e.preventDefault();
     if (!celebrity || !user) return;
     if (!isMembership && !selectedDate) return;
-    if (isMembership && !cardHolderName.trim()) {
-      alert('Please enter your name for the membership card.');
-      return;
-    }
+    if (isMembership && !cardHolderName.trim()) { alert('Please enter your name for the membership card.'); return; }
 
     setSubmitting(true);
     const accountNum = account?.account_number || '';
 
-    // Upload photo if selected
     let uploadedPhotoUrl = null;
     if (photoFile) {
       setUploadingPhoto(true);
       uploadedPhotoUrl = await uploadFile(photoFile, 'card-photos');
       setUploadingPhoto(false);
-    } else if (photoUrl) {
-      uploadedPhotoUrl = photoUrl;
-    }
+    } else if (photoUrl) uploadedPhotoUrl = photoUrl;
 
-    // Generate card number for memberships
-    const cardNumber = isMembership && membership
-      ? generateCardNumber(membership.name)
-      : null;
+    const cardNumber = isMembership && membership ? generateCardNumber(membership.name) : null;
 
     const { data: bookingData, error } = await supabase.from('bookings').insert({
       user_id: user.id,
@@ -198,30 +161,21 @@ export default function Booking() {
 
     if (!error && bookingData && bookingData.length > 0) {
       const newBooking = bookingData[0] as any;
-
-      // Upload receipt if selected
       let uploadedReceiptUrl = null;
       if (receiptFile) {
         setUploadingReceipt(true);
         uploadedReceiptUrl = await uploadFile(receiptFile, 'receipts');
         setUploadingReceipt(false);
-      } else if (receiptUrl) {
-        uploadedReceiptUrl = receiptUrl;
-      }
+      } else if (receiptUrl) uploadedReceiptUrl = receiptUrl;
 
       if (uploadedReceiptUrl) {
-        await supabase
-          .from('bookings')
-          .update({ receipt_url: uploadedReceiptUrl } as any)
-          .eq('id', newBooking.id);
+        await supabase.from('bookings').update({ receipt_url: uploadedReceiptUrl } as any).eq('id', newBooking.id);
       }
 
-      // Create membership_card record for memberships
       if (isMembership && membership && cardNumber) {
         const validFrom = new Date().toISOString().split('T')[0];
         const validUntil = new Date();
         validUntil.setMonth(validUntil.getMonth() + membership.duration_months);
-        
         await supabase.from('membership_cards').insert({
           booking_id: newBooking.id,
           card_holder_name: cardHolderName,
@@ -243,8 +197,8 @@ export default function Booking() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-10 h-10 animate-spin text-indigo-600" />
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-50 to-white">
+        <Loader2 className="w-12 h-12 animate-spin text-indigo-600" />
       </div>
     );
   }
@@ -253,9 +207,8 @@ export default function Booking() {
     return (
       <div className="max-w-7xl mx-auto px-4 py-20 text-center">
         <h1 className="text-2xl font-bold mb-4">Celebrity not found</h1>
-        <Button onClick={() => navigate('/celebrities')}>
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to Browse
+        <Button onClick={() => navigate('/celebrities')} className="bg-indigo-600">
+          <ArrowLeft className="w-4 h-4 mr-2" /> Back to Browse
         </Button>
       </div>
     );
@@ -263,40 +216,44 @@ export default function Booking() {
 
   if (success) {
     return (
-      <div className="max-w-xl mx-auto px-4 py-20 text-center">
-        <div className="bg-white rounded-xl shadow-sm border p-10">
-          <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold mb-2">{isMembership ? 'Membership Purchased!' : 'Booking Submitted!'}</h1>
-          <p className="text-gray-600 mb-4">
-            Your {isMembership ? 'membership' : 'booking'} for <strong>{celebrity.name}</strong> is pending admin approval.
+      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white flex items-center justify-center px-4">
+        <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 p-10 max-w-lg w-full text-center">
+          <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
+            <CheckCircle className="w-10 h-10 text-green-600" />
+          </div>
+          <h1 className="text-3xl font-black mb-3">{isMembership ? 'Membership Purchased!' : 'Booking Submitted!'}</h1>
+          <p className="text-gray-600 mb-6 text-lg">
+            Your {isMembership ? 'membership' : 'booking'} for <strong className="text-indigo-600">{celebrity.name}</strong> is pending admin approval.
           </p>
           {isMembership && (
-            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-6 text-left">
+            <div className="bg-gradient-to-r from-purple-50 to-violet-50 border border-purple-200 rounded-xl p-5 mb-6 text-left">
               <div className="flex items-center gap-2 mb-2">
                 <IdCard className="w-5 h-5 text-purple-600" />
-                <span className="font-semibold text-purple-800">Your membership card is being generated</span>
+                <span className="font-bold text-purple-800">Your membership card is being generated</span>
               </div>
               <p className="text-sm text-purple-700">Once approved, you can view and download your personalized card from your dashboard.</p>
             </div>
           )}
           {account && (
-            <Card className="bg-yellow-50 border-yellow-200 mb-6 text-left">
-              <CardContent className="py-4">
-                <h3 className="font-semibold text-sm mb-2 text-yellow-800">Payment Account Details</h3>
-                <div className="text-sm space-y-1">
-                  <div className="flex justify-between"><span>Account Name:</span><span className="font-medium">{account.account_name}</span></div>
-                  <div className="flex justify-between"><span>Account Number:</span><span className="font-mono font-medium">{account.account_number}</span></div>
-                  <div className="flex justify-between"><span>Bank:</span><span className="font-medium">{account.bank_name}</span></div>
+            <Card className="bg-gradient-to-br from-amber-50 to-yellow-50 border-amber-200 mb-6 text-left rounded-xl">
+              <CardContent className="py-5">
+                <h3 className="font-bold text-sm mb-3 text-amber-800 flex items-center gap-2">
+                  <Building2 className="w-4 h-4" /> Payment Account Details
+                </h3>
+                <div className="text-sm space-y-2">
+                  <div className="flex justify-between"><span className="text-amber-700">Account Name:</span><span className="font-semibold">{account.account_name}</span></div>
+                  <div className="flex justify-between"><span className="text-amber-700">Account Number:</span><span className="font-mono font-bold text-amber-900">{account.account_number}</span></div>
+                  <div className="flex justify-between"><span className="text-amber-700">Bank:</span><span className="font-semibold">{account.bank_name}</span></div>
                 </div>
-                <p className="text-xs text-yellow-700 mt-2">Please transfer ${totalPrice.toLocaleString()} to this account.</p>
+                <p className="text-xs text-amber-600 mt-3 font-medium">Please transfer ${totalPrice.toLocaleString()} to this account.</p>
               </CardContent>
             </Card>
           )}
           <div className="flex flex-col gap-3">
-            <Button onClick={() => navigate('/dashboard')}>
+            <Button onClick={() => navigate('/dashboard')} className="bg-indigo-600 hover:bg-indigo-700 h-12 rounded-xl text-lg font-bold">
               View My Bookings
             </Button>
-            <Button variant="ghost" onClick={() => navigate('/celebrities')}>
+            <Button variant="ghost" onClick={() => navigate('/celebrities')} className="text-gray-500 h-12">
               Browse More Celebrities
             </Button>
           </div>
@@ -306,260 +263,186 @@ export default function Booking() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-10">
-      <Button variant="ghost" onClick={() => navigate(`/celebrities/${celebrity.id}`)} className="mb-6">
-        <ArrowLeft className="w-4 h-4 mr-2" />
-        Back to Profile
-      </Button>
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white py-10 px-4">
+      <div className="max-w-3xl mx-auto">
+        <Button variant="ghost" onClick={() => navigate(`/celebrities/${celebrity.id}`)} className="mb-6 hover:bg-white rounded-xl">
+          <ArrowLeft className="w-4 h-4 mr-2" /> Back to Profile
+        </Button>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-2xl flex items-center gap-2">
-            {isMembership ? <Crown className="w-6 h-6 text-purple-600" /> : <Star className="w-6 h-6 text-indigo-600" />}
-            {isMembership && membership ? `Buy ${membership.name} - ${celebrity.name}` : `Book ${celebrity.name}`}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
+        <Card className="rounded-3xl shadow-xl border-gray-100 overflow-hidden">
+          <CardHeader className="bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-gray-100 py-8">
+            <CardTitle className="text-2xl flex items-center gap-3">
+              {isMembership ? (
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-violet-500 flex items-center justify-center">
+                  {membership && TIER_ICONS[membership.name]}
+                </div>
+              ) : (
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center">
+                  <Star className="w-5 h-5 text-white" />
+                </div>
+              )}
+              <span className="font-black">
+                {isMembership && membership ? `Buy ${membership.name} — ${celebrity.name}` : `Book ${celebrity.name}`}
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-8">
+            <form onSubmit={handleSubmit} className="space-y-8">
 
-            {isMembership && membership && (
-              <Card className="bg-gradient-to-br from-purple-50 via-violet-50 to-white border-purple-200">
-                <CardContent className="py-4">
-                  <h3 className="font-semibold text-purple-800 mb-2 flex items-center gap-2">
-                    <Crown className="w-4 h-4" />
-                    {membership.name} Membership
-                  </h3>
-                  <p className="text-sm text-purple-700 mb-1">{membership.duration_months} month{membership.duration_months !== 1 ? 's' : ''}</p>
-                  <ul className="space-y-1">
-                    {membership.benefits.map((b, i) => (
-                      <li key={i} className="text-sm text-purple-700">• {b}</li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Date Selection - only for ticket bookings */}
-            {!isMembership && (
-              <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4" />
-                  Select Date
-                </Label>
-                <Select value={selectedDate} onValueChange={setSelectedDate}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose an available date" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {celebrity.available_dates.map((date: string) => (
-                      <SelectItem key={date} value={date}>
-                        {new Date(date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {/* Tickets - only for ticket bookings */}
-            {!isMembership && (
-              <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                  <Ticket className="w-4 h-4" />
-                  Number of Tickets
-                </Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={numTickets}
-                  onChange={(e) => setNumTickets(Math.max(1, Math.min(10, Number(e.target.value))))}
-                />
-              </div>
-            )}
-
-            {/* Special Requests */}
-            <div className="space-y-2">
-              <Label>Special Requests (Optional)</Label>
-              <Textarea
-                placeholder="Any special requests for your booking..."
-                value={specialRequests}
-                onChange={(e) => setSpecialRequests(e.target.value)}
-                rows={3}
-              />
-            </div>
-
-            {/* Membership Card Personalization - only for memberships */}
-            {isMembership && (
-              <>
-                <Separator />
-                <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-white">
-                  <CardContent className="p-5">
-                    <h3 className="font-semibold text-indigo-800 mb-4 flex items-center gap-2">
-                      <IdCard className="w-5 h-5" />
-                      Personalize Your Membership Card
+              {isMembership && membership && (
+                <Card className="bg-gradient-to-r from-purple-50 via-violet-50 to-fuchsia-50 border-purple-200 rounded-2xl">
+                  <CardContent className="py-5">
+                    <h3 className="font-bold text-purple-800 mb-2 flex items-center gap-2 text-lg">
+                      {TIER_ICONS[membership.name]} {membership.name} Membership
                     </h3>
-                    <p className="text-sm text-gray-500 mb-4">
-                      Enter the details you'd like displayed on your digital membership card.
-                    </p>
-                    
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label className="flex items-center gap-2">
-                          <User className="w-4 h-4" />
-                          Name on Card *
-                        </Label>
-                        <Input
-                          placeholder="Enter your full name"
-                          value={cardHolderName}
-                          onChange={(e) => setCardHolderName(e.target.value)}
-                          required={isMembership}
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label className="flex items-center gap-2">
-                          <ImageIcon className="w-4 h-4" />
-                          Profile Photo for Card (Optional)
-                        </Label>
-                        <p className="text-xs text-gray-500">Upload a photo to appear on your membership card.</p>
-                        
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="file"
-                            ref={photoInputRef}
-                            className="hidden"
-                            accept="image/*"
-                            onChange={(e) => setPhotoFile(e.target.files?.[0] || null)}
-                          />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => photoInputRef.current?.click()}
-                            className="flex items-center gap-2"
-                          >
-                            <Upload className="w-4 h-4" />
-                            {photoFile ? 'Change Photo' : 'Upload Photo'}
-                          </Button>
-                          {photoFile && (
-                            <span className="text-sm text-gray-600">{photoFile.name}</span>
-                          )}
-                        </div>
-                        
-                        <div className="text-center text-sm text-gray-400">— or paste a URL —</div>
-                        <Input
-                          placeholder="https://... (photo URL)"
-                          value={photoUrl}
-                          onChange={(e) => setPhotoUrl(e.target.value)}
-                        />
-                      </div>
-                    </div>
+                    <p className="text-purple-600 font-medium mb-1">{membership.duration_months} month{membership.duration_months !== 1 ? 's' : ''}</p>
+                    <ul className="space-y-1 mt-3">
+                      {membership.benefits.map((b, i) => (
+                        <li key={i} className="text-sm text-purple-700 flex items-center gap-2">
+                          <Check className="w-3.5 h-3.5 text-purple-500" /> {b}
+                        </li>
+                      ))}
+                    </ul>
                   </CardContent>
                 </Card>
-              </>
-            )}
+              )}
 
-            <Separator />
-
-            {/* Payment Account Info */}
-            {account && (
-              <Card className="bg-gray-50">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2 text-gray-600">
-                    <Building2 className="w-4 h-4" />
-                    Payment Transfer Details
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-1 text-sm">
-                  <div className="flex justify-between"><span className="text-gray-500">Account Name:</span><span className="font-medium">{account.account_name}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Account Number:</span><span className="font-mono font-medium text-indigo-600">{account.account_number}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Bank:</span><span className="font-medium">{account.bank_name}</span></div>
-                  <p className="text-xs text-gray-400 mt-2">Transfer the exact amount below to this account, then upload your receipt.</p>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Price Summary */}
-            <div className="bg-gray-50 p-4 rounded-lg space-y-2">
               {!isMembership && (
                 <>
-                  <div className="flex justify-between text-sm">
-                    <span>Price per ticket</span>
-                    <span>${celebrity.base_price.toLocaleString()}</span>
+                  <div className="space-y-2">
+                    <Label className="text-sm font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                      <Calendar className="w-4 h-4" /> Select Date
+                    </Label>
+                    <Select value={selectedDate} onValueChange={setSelectedDate}>
+                      <SelectTrigger className="h-12 rounded-xl">
+                        <SelectValue placeholder="Choose an available date" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {celebrity.available_dates.map((date: string) => (
+                          <SelectItem key={date} value={date}>
+                            {new Date(date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Tickets</span>
-                    <span>x {numTickets}</span>
+                  <div className="space-y-2">
+                    <Label className="text-sm font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                      <Ticket className="w-4 h-4" /> Number of Tickets
+                    </Label>
+                    <Input type="number" min={1} max={10} value={numTickets} onChange={(e) => setNumTickets(Math.max(1, Math.min(10, Number(e.target.value))))} className="h-12 rounded-xl" />
                   </div>
                 </>
               )}
+
+              <div className="space-y-2">
+                <Label className="text-sm font-bold text-gray-500 uppercase tracking-wider">Special Requests (Optional)</Label>
+                <Textarea placeholder="Any special requests..." value={specialRequests} onChange={(e) => setSpecialRequests(e.target.value)} rows={3} className="rounded-xl" />
+              </div>
+
+              {isMembership && (
+                <>
+                  <Separator />
+                  <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-white rounded-2xl">
+                    <CardContent className="p-6">
+                      <h3 className="font-bold text-indigo-800 mb-4 flex items-center gap-2 text-lg">
+                        <IdCard className="w-5 h-5" /> Personalize Your Membership Card
+                      </h3>
+                      <p className="text-sm text-gray-500 mb-5">Enter the details for your digital membership card.</p>
+                      <div className="space-y-5">
+                        <div className="space-y-2">
+                          <Label className="flex items-center gap-2 font-semibold">
+                            <User className="w-4 h-4" /> Name on Card *
+                          </Label>
+                          <Input placeholder="Enter your full name" value={cardHolderName} onChange={(e) => setCardHolderName(e.target.value)} required={isMembership} className="h-12 rounded-xl" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="flex items-center gap-2 font-semibold">
+                            <ImageIcon className="w-4 h-4" /> Profile Photo for Card
+                          </Label>
+                          <p className="text-xs text-gray-400">Upload a photo to appear on your membership card.</p>
+                          <div className="flex items-center gap-3">
+                            <input type="file" ref={photoInputRef} className="hidden" accept="image/*" onChange={(e) => setPhotoFile(e.target.files?.[0] || null)} />
+                            <Button type="button" variant="outline" onClick={() => photoInputRef.current?.click()} className="rounded-xl">
+                              <Upload className="w-4 h-4 mr-2" />
+                              {photoFile ? 'Change Photo' : 'Upload Photo'}
+                            </Button>
+                            {photoFile && <span className="text-sm text-gray-600">{photoFile.name}</span>}
+                          </div>
+                          <div className="text-center text-sm text-gray-400">— or —</div>
+                          <Input placeholder="https://... (photo URL)" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} className="rounded-xl" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </>
+              )}
+
               <Separator />
-              <div className="flex justify-between text-lg font-bold text-indigo-600">
-                <span className="flex items-center gap-1"><DollarSign className="w-4 h-4" /> Total</span>
-                <span>${totalPrice.toLocaleString()}</span>
-              </div>
-            </div>
 
-            {/* Receipt Upload */}
-            <div className="space-y-3">
-              <Label className="flex items-center gap-2">
-                <Upload className="w-4 h-4" />
-                Payment Receipt
-              </Label>
-              <p className="text-xs text-gray-500">Upload a screenshot or photo of your payment receipt. Admin will verify before approval.</p>
-              
-              <div className="flex items-center gap-3">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  className="hidden"
-                  accept="image/*,.pdf"
-                  onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-2"
-                >
-                  <FileImage className="w-4 h-4" />
-                  {receiptFile ? 'Change File' : 'Choose File'}
-                </Button>
-                {receiptFile && (
-                  <span className="text-sm text-gray-600">{receiptFile.name}</span>
-                )}
-              </div>
-              
-              <div className="text-center text-sm text-gray-400">— or paste a URL —</div>
-              
-              <Input
-                placeholder="https://... (receipt image URL)"
-                value={receiptUrl}
-                onChange={(e) => setReceiptUrl(e.target.value)}
-              />
-            </div>
-
-            <Button
-              type="submit"
-              size="lg"
-              className="w-full"
-              disabled={submitting || uploadingReceipt || uploadingPhoto || (!isMembership && !selectedDate)}
-            >
-              {submitting || uploadingReceipt || uploadingPhoto ? (
-                <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <CreditCard className="w-5 h-5 mr-2" />
-                  {isMembership ? 'Buy Membership' : 'Confirm Booking'}
-                </>
+              {account && (
+                <Card className="bg-gradient-to-br from-gray-50 to-white border-gray-200 rounded-2xl">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm flex items-center gap-2 text-gray-500 font-bold uppercase tracking-wider">
+                      <Building2 className="w-4 h-4" /> Payment Transfer Details
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    <div className="flex justify-between items-center"><span className="text-gray-500">Account Name</span><span className="font-semibold">{account.account_name}</span></div>
+                    <div className="flex justify-between items-center"><span className="text-gray-500">Account Number</span><span className="font-mono font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg">{account.account_number}</span></div>
+                    <div className="flex justify-between items-center"><span className="text-gray-500">Bank</span><span className="font-semibold">{account.bank_name}</span></div>
+                    <p className="text-xs text-gray-400 mt-2">Transfer the exact amount below, then upload your receipt.</p>
+                  </CardContent>
+                </Card>
               )}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+
+              <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-6 rounded-2xl border border-indigo-100">
+                {!isMembership && (
+                  <>
+                    <div className="flex justify-between text-sm mb-2"><span className="text-gray-600">Price per ticket</span><span>${celebrity.base_price.toLocaleString()}</span></div>
+                    <div className="flex justify-between text-sm mb-3"><span className="text-gray-600">Tickets</span><span>x {numTickets}</span></div>
+                  </>
+                )}
+                <Separator className="mb-3 bg-indigo-200" />
+                <div className="flex justify-between text-xl font-black text-indigo-700">
+                  <span className="flex items-center gap-1"><DollarSign className="w-5 h-5" /> Total</span>
+                  <span>${totalPrice.toLocaleString()}</span>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <Label className="text-sm font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                  <Upload className="w-4 h-4" /> Payment Receipt
+                </Label>
+                <p className="text-xs text-gray-500">Upload a screenshot or photo of your payment receipt. Admin will verify before approval.</p>
+                <div className="flex items-center gap-3">
+                  <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf" onChange={(e) => setReceiptFile(e.target.files?.[0] || null)} />
+                  <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} className="rounded-xl">
+                    <FileImage className="w-4 h-4 mr-2" />
+                    {receiptFile ? 'Change File' : 'Choose File'}
+                  </Button>
+                  {receiptFile && <span className="text-sm text-gray-600">{receiptFile.name}</span>}
+                </div>
+                <div className="text-center text-sm text-gray-400">— or paste a URL —</div>
+                <Input placeholder="https://... (receipt image URL)" value={receiptUrl} onChange={(e) => setReceiptUrl(e.target.value)} className="rounded-xl" />
+              </div>
+
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full h-14 text-lg font-bold rounded-xl shadow-xl shadow-indigo-200 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white"
+                disabled={submitting || uploadingReceipt || uploadingPhoto || (!isMembership && !selectedDate)}
+              >
+                {submitting || uploadingReceipt || uploadingPhoto ? (
+                  <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Processing...</>
+                ) : (
+                  <><CreditCard className="w-5 h-5 mr-2" /> {isMembership ? 'Buy Membership' : 'Confirm Booking'}</>
+                )}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

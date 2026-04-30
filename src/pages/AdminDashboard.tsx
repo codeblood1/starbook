@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, CheckCircle, XCircle, Plus, Pencil, Trash2, Star, DollarSign, MapPin, Calendar, Receipt, Building2, FileImage, Crown } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, Plus, Pencil, Trash2, Star, DollarSign, MapPin, Calendar, Receipt, Building2, FileImage, Crown, Gem, Shield, ChevronUp, Save, X } from 'lucide-react';
 
 interface BookingWithDetails {
   id: string;
@@ -50,6 +50,16 @@ interface CelebrityAccount {
   created_at: string;
 }
 
+interface Membership {
+  id: string;
+  celebrity_id: string;
+  name: string;
+  price: number;
+  duration_months: number;
+  benefits: string[];
+  created_at: string;
+}
+
 const CATEGORIES = ['Actor', 'Musician', 'Athlete', 'Influencer', 'Comedian', 'Model', 'Director'];
 
 export default function AdminDashboard() {
@@ -57,12 +67,18 @@ export default function AdminDashboard() {
   const [bookings, setBookings] = useState<BookingWithDetails[]>([]);
   const [celebrities, setCelebrities] = useState<Celebrity[]>([]);
   const [accounts, setAccounts] = useState<CelebrityAccount[]>([]);
+  const [memberships, setMemberships] = useState<Membership[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCelebrity, setEditingCelebrity] = useState<Celebrity | null>(null);
   const [receiptDialog, setReceiptDialog] = useState<string | null>(null);
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<CelebrityAccount | null>(null);
+  const [membershipDialogOpen, setMembershipDialogOpen] = useState(false);
+  const [editingMembership, setEditingMembership] = useState<Membership | null>(null);
+  const [expandedBooking, setExpandedBooking] = useState<string | null>(null);
+  const [editAccountNum, setEditAccountNum] = useState('');
+  const [editAccountName, setEditAccountName] = useState('');
 
   const [form, setForm] = useState({
     name: '', bio: '', image_url: '', country: '', category: '', base_price: 0, available_dates: '',
@@ -72,13 +88,17 @@ export default function AdminDashboard() {
     celebrity_id: '', account_name: '', account_number: '', bank_name: '', is_active: true,
   });
 
+  const [membershipForm, setMembershipForm] = useState({
+    celebrity_id: '', name: 'Silver', price: 0, duration_months: 1, benefits: '',
+  });
+
   useEffect(() => {
     fetchData();
   }, []);
 
   async function fetchData() {
     setLoading(true);
-    const [bookingsRes, celebRes, accountRes] = await Promise.all([
+    const [bookingsRes, celebRes, accountRes, membershipRes] = await Promise.all([
       supabase.from('bookings').select(`
         id, booking_date, num_tickets, total_price, status, special_requests, created_at, account_number, receipt_url, card_holder_name, card_number,
         user:user_id (full_name, email),
@@ -87,6 +107,7 @@ export default function AdminDashboard() {
       `).order('created_at', { ascending: false }),
       supabase.from('celebrities').select('*').order('created_at', { ascending: false }),
       supabase.from('celebrity_accounts').select('*').order('created_at', { ascending: false }),
+      supabase.from('memberships').select('*').order('price', { ascending: true }),
     ]);
 
     if (!bookingsRes.error && bookingsRes.data) {
@@ -106,17 +127,43 @@ export default function AdminDashboard() {
     if (!accountRes.error && accountRes.data) {
       setAccounts(accountRes.data as CelebrityAccount[]);
     }
+    if (!membershipRes.error && membershipRes.data) {
+      setMemberships((membershipRes.data as any[]).map(m => ({
+        ...m,
+        benefits: Array.isArray(m.benefits) ? m.benefits : []
+      })));
+    }
     setLoading(false);
   }
 
   async function confirmBooking(id: string) {
-    const { error } = await supabase.from('bookings').update({ status: 'confirmed' } as any).eq('id', id);
-    if (!error) setBookings(prev => prev.map(b => b.id === id ? { ...b, status: 'confirmed' as const } : b));
+    const { error } = await supabase.from('bookings').update({ status: 'confirmed' }).eq('id', id);
+    if (!error) {
+      setBookings(prev => prev.map(b => b.id === id ? { ...b, status: 'confirmed' as const } : b));
+    } else {
+      alert('Failed to confirm: ' + (error as any).message);
+    }
   }
 
   async function cancelBooking(id: string) {
-    const { error } = await supabase.from('bookings').update({ status: 'cancelled' } as any).eq('id', id);
-    if (!error) setBookings(prev => prev.map(b => b.id === id ? { ...b, status: 'cancelled' as const } : b));
+    const { error } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id);
+    if (!error) {
+      setBookings(prev => prev.map(b => b.id === id ? { ...b, status: 'cancelled' as const } : b));
+    } else {
+      alert('Failed to cancel: ' + (error as any).message);
+    }
+  }
+
+  async function saveBookingAccount(id: string) {
+    const { error } = await supabase.from('bookings').update({
+      account_number: editAccountNum || null,
+    }).eq('id', id);
+    if (!error) {
+      setBookings(prev => prev.map(b => b.id === id ? { ...b, account_number: editAccountNum || null } : b));
+      setExpandedBooking(null);
+    } else {
+      alert('Failed to update: ' + (error as any).message);
+    }
   }
 
   function openEdit(celeb: Celebrity) {
@@ -146,23 +193,23 @@ export default function AdminDashboard() {
     };
 
     if (editingCelebrity) {
-      const { error } = await supabase.from('celebrities').update(payload as any).eq('id', editingCelebrity.id);
+      const { error } = await supabase.from('celebrities').update(payload).eq('id', editingCelebrity.id);
       if (!error) {
         setCelebrities(prev => prev.map(c => c.id === editingCelebrity.id ? { ...c, ...payload, available_dates: dates } : c));
         setDialogOpen(false);
-      } else { alert('Failed to update celebrity: ' + (error as any).message); }
+      } else { alert('Failed to update: ' + (error as any).message); }
     } else {
-      const { data, error } = await supabase.from('celebrities').insert(payload as any).select();
+      const { data, error } = await supabase.from('celebrities').insert(payload).select();
       if (!error && data) {
         const newCeleb = data[0] as any;
         setCelebrities(prev => [{ ...newCeleb, available_dates: dates }, ...prev]);
         setDialogOpen(false);
-      } else { alert('Failed to add celebrity: ' + (error as any).message); }
+      } else { alert('Failed to add: ' + (error as any).message); }
     }
   }
 
   async function deleteCelebrity(id: string) {
-    if (!confirm('Are you sure you want to delete this celebrity?')) return;
+    if (!confirm('Are you sure? This will delete all associated memberships and bookings.')) return;
     const { error } = await supabase.from('celebrities').delete().eq('id', id);
     if (!error) setCelebrities(prev => prev.filter(c => c.id !== id));
   }
@@ -186,10 +233,7 @@ export default function AdminDashboard() {
 
   async function handleSaveAccount(e: React.FormEvent) {
     e.preventDefault();
-    if (!accountForm.celebrity_id) {
-      alert('Please select a celebrity.');
-      return;
-    }
+    if (!accountForm.celebrity_id) { alert('Please select a celebrity.'); return; }
     if (editingAccount) {
       const { error } = await supabase.from('celebrity_accounts').update({
         celebrity_id: accountForm.celebrity_id,
@@ -197,14 +241,11 @@ export default function AdminDashboard() {
         account_number: accountForm.account_number,
         bank_name: accountForm.bank_name,
         is_active: accountForm.is_active,
-      } as any).eq('id', editingAccount.id);
+      }).eq('id', editingAccount.id);
       if (!error) {
         setAccounts(prev => prev.map(a => a.id === editingAccount.id ? { ...a, ...accountForm } : a));
         setAccountDialogOpen(false);
-      } else {
-        console.error('Update error:', error);
-        alert('Failed to update account: ' + (error as any).message);
-      }
+      } else { alert('Failed: ' + (error as any).message); }
     } else {
       const { data, error } = await supabase.from('celebrity_accounts').insert({
         celebrity_id: accountForm.celebrity_id,
@@ -212,15 +253,61 @@ export default function AdminDashboard() {
         account_number: accountForm.account_number,
         bank_name: accountForm.bank_name,
         is_active: accountForm.is_active,
-      } as any).select();
+      }).select();
       if (!error && data) {
         setAccounts(prev => [data[0] as CelebrityAccount, ...prev]);
         setAccountDialogOpen(false);
-      } else {
-        console.error('Insert error:', error);
-        alert('Failed to add account: ' + (error as any).message);
-      }
+      } else { alert('Failed: ' + (error as any).message); }
     }
+  }
+
+  function openMembershipEdit(membership?: Membership) {
+    if (membership) {
+      setEditingMembership(membership);
+      setMembershipForm({
+        celebrity_id: membership.celebrity_id,
+        name: membership.name,
+        price: membership.price,
+        duration_months: membership.duration_months,
+        benefits: Array.isArray(membership.benefits) ? membership.benefits.join(', ') : '',
+      });
+    } else {
+      setEditingMembership(null);
+      setMembershipForm({ celebrity_id: celebrities[0]?.id || '', name: 'Silver', price: 0, duration_months: 1, benefits: '' });
+    }
+    setMembershipDialogOpen(true);
+  }
+
+  async function handleSaveMembership(e: React.FormEvent) {
+    e.preventDefault();
+    if (!membershipForm.celebrity_id) { alert('Please select a celebrity.'); return; }
+    const benefits = membershipForm.benefits.split(',').map(b => b.trim()).filter(Boolean);
+    const payload = {
+      celebrity_id: membershipForm.celebrity_id,
+      name: membershipForm.name,
+      price: Number(membershipForm.price),
+      duration_months: Number(membershipForm.duration_months),
+      benefits,
+    };
+    if (editingMembership) {
+      const { error } = await supabase.from('memberships').update(payload).eq('id', editingMembership.id);
+      if (!error) {
+        setMemberships(prev => prev.map(m => m.id === editingMembership.id ? { ...m, ...payload, benefits } : m));
+        setMembershipDialogOpen(false);
+      } else { alert('Failed: ' + (error as any).message); }
+    } else {
+      const { data, error } = await supabase.from('memberships').insert(payload).select();
+      if (!error && data) {
+        setMemberships(prev => [...prev, { ...(data[0] as any), benefits }]);
+        setMembershipDialogOpen(false);
+      } else { alert('Failed: ' + (error as any).message); }
+    }
+  }
+
+  async function deleteMembership(id: string) {
+    if (!confirm('Delete this membership tier?')) return;
+    const { error } = await supabase.from('memberships').delete().eq('id', id);
+    if (!error) setMemberships(prev => prev.filter(m => m.id !== id));
   }
 
   const getStatusBadge = (status: string) => {
@@ -243,28 +330,46 @@ export default function AdminDashboard() {
     <div className="max-w-7xl mx-auto px-4 py-10">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+          <h1 className="text-3xl font-black">Admin Dashboard</h1>
           <p className="text-gray-500">Manage bookings, celebrities, memberships, and payment accounts.</p>
         </div>
-        <Button onClick={openAdd}>
+        <Button onClick={openAdd} className="bg-indigo-600 hover:bg-indigo-700">
           <Plus className="w-4 h-4 mr-2" />
           Add Celebrity
         </Button>
       </div>
 
-      {/* Stats Cards */}
+      {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <Card><CardContent className="pt-6"><div className="text-sm text-gray-500">Total Bookings</div><div className="text-3xl font-bold">{stats.totalBookings}</div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="text-sm text-gray-500">Pending</div><div className="text-3xl font-bold text-yellow-600">{stats.pending}</div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="text-sm text-gray-500">Confirmed</div><div className="text-3xl font-bold text-green-600">{stats.confirmed}</div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="text-sm text-gray-500">Revenue</div><div className="text-3xl font-bold text-indigo-600">${stats.totalRevenue.toLocaleString()}</div></CardContent></Card>
+        {[
+          { label: 'Total Bookings', value: stats.totalBookings, color: 'text-gray-900' },
+          { label: 'Pending', value: stats.pending, color: 'text-amber-600' },
+          { label: 'Confirmed', value: stats.confirmed, color: 'text-green-600' },
+          { label: 'Revenue', value: '$' + stats.totalRevenue.toLocaleString(), color: 'text-indigo-600' },
+        ].map((s, i) => (
+          <Card key={i} className="hover:shadow-md transition">
+            <CardContent className="pt-6">
+              <div className="text-sm text-gray-500">{s.label}</div>
+              <div className={`text-3xl font-black ${s.color}`}>{s.value}</div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="mb-6">
-          <TabsTrigger value="bookings">Bookings</TabsTrigger>
-          <TabsTrigger value="celebrities">Celebrities</TabsTrigger>
-          <TabsTrigger value="accounts">Payment Accounts</TabsTrigger>
+        <TabsList className="mb-6 bg-gray-100 p-1 rounded-xl">
+          <TabsTrigger value="bookings" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">
+            <Receipt className="w-4 h-4 mr-1" /> Bookings
+          </TabsTrigger>
+          <TabsTrigger value="celebrities" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">
+            <Star className="w-4 h-4 mr-1" /> Celebrities
+          </TabsTrigger>
+          <TabsTrigger value="memberships" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">
+            <Crown className="w-4 h-4 mr-1" /> Memberships
+          </TabsTrigger>
+          <TabsTrigger value="accounts" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">
+            <Building2 className="w-4 h-4 mr-1" /> Accounts
+          </TabsTrigger>
         </TabsList>
 
         {/* BOOKINGS TAB */}
@@ -273,18 +378,17 @@ export default function AdminDashboard() {
             <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 animate-spin text-indigo-600" /></div>
           ) : (
             <Card>
-              <CardHeader><CardTitle>All Bookings & Payments</CardTitle></CardHeader>
+              <CardHeader><CardTitle>All Bookings & Approvals</CardTitle></CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
+                      <TableRow className="bg-gray-50">
                         <TableHead>Customer</TableHead>
                         <TableHead>Celebrity</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Amount</TableHead>
                         <TableHead>Account #</TableHead>
-                        <TableHead>Card #</TableHead>
                         <TableHead>Receipt</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Actions</TableHead>
@@ -292,48 +396,99 @@ export default function AdminDashboard() {
                     </TableHeader>
                     <TableBody>
                       {bookings.map((b) => (
-                        <TableRow key={b.id}>
-                          <TableCell>
-                            <div className="font-medium">{b.user?.full_name || 'N/A'}</div>
-                            <div className="text-xs text-gray-500">{b.user?.email}</div>
-                          </TableCell>
-                          <TableCell className="font-medium">{b.celebrity?.name || 'N/A'}</TableCell>
-                          <TableCell>
-                            {b.membership ? (
-                              <Badge className="bg-purple-100 text-purple-700"><Crown className="w-3 h-3 mr-1" />{b.membership.name}</Badge>
-                            ) : (
-                              <Badge variant="secondary">Ticket</Badge>
-                            )}
-                          </TableCell>
-                          <TableCell className="font-semibold">${b.total_price.toLocaleString()}</TableCell>
-                          <TableCell className="font-mono text-xs">{b.account_number || '—'}</TableCell>
-                          <TableCell className="font-mono text-xs">{b.card_number || '—'}</TableCell>
-                          <TableCell>
-                            {b.receipt_url ? (
-                              <Button size="sm" variant="ghost" onClick={() => setReceiptDialog(b.receipt_url)}>
-                                <FileImage className="w-4 h-4 mr-1 text-green-600" />
-                                View
-                              </Button>
-                            ) : (
-                              <span className="text-xs text-gray-400">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell>{getStatusBadge(b.status)}</TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              {b.status === 'pending' && (
-                                <Button size="sm" variant="outline" className="text-green-600 border-green-300 hover:bg-green-50" onClick={() => confirmBooking(b.id)}>
-                                  <CheckCircle className="w-3 h-3 mr-1" /> Confirm
-                                </Button>
+                        <>
+                          <TableRow key={b.id} className={b.status === 'pending' ? 'bg-yellow-50/50' : ''}>
+                            <TableCell>
+                              <div className="font-semibold">{b.user?.full_name || 'N/A'}</div>
+                              <div className="text-xs text-gray-500">{b.user?.email}</div>
+                            </TableCell>
+                            <TableCell className="font-semibold">{b.celebrity?.name || 'N/A'}</TableCell>
+                            <TableCell>
+                              {b.membership ? (
+                                <Badge className={`${
+                                  b.membership.name === 'Platinum' ? 'bg-purple-100 text-purple-700' :
+                                  b.membership.name === 'Gold' ? 'bg-amber-100 text-amber-700' :
+                                  'bg-gray-100 text-gray-700'
+                                }`}>
+                                  <Crown className="w-3 h-3 mr-1" />{b.membership.name}
+                                </Badge>
+                              ) : (
+                                <Badge variant="secondary">Ticket</Badge>
                               )}
-                              {b.status !== 'cancelled' && (
-                                <Button size="sm" variant="outline" className="text-red-600 border-red-300 hover:bg-red-50" onClick={() => cancelBooking(b.id)}>
-                                  <XCircle className="w-3 h-3 mr-1" /> Cancel
+                            </TableCell>
+                            <TableCell className="font-bold text-indigo-600">${b.total_price.toLocaleString()}</TableCell>
+                            <TableCell className="font-mono text-xs">{b.account_number || '—'}</TableCell>
+                            <TableCell>
+                              {b.receipt_url ? (
+                                <Button size="sm" variant="ghost" onClick={() => setReceiptDialog(b.receipt_url)}>
+                                  <FileImage className="w-4 h-4 text-green-600 mr-1" />View
                                 </Button>
+                              ) : (
+                                <span className="text-xs text-gray-400">—</span>
                               )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
+                            </TableCell>
+                            <TableCell>{getStatusBadge(b.status)}</TableCell>
+                            <TableCell>
+                              <div className="flex gap-2 flex-wrap">
+                                {b.status === 'pending' && (
+                                  <>
+                                    <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => confirmBooking(b.id)}>
+                                      <CheckCircle className="w-3 h-3 mr-1" /> Confirm
+                                    </Button>
+                                    <Button size="sm" variant="outline" className="text-red-600 border-red-300 hover:bg-red-50" onClick={() => cancelBooking(b.id)}>
+                                      <XCircle className="w-3 h-3 mr-1" /> Cancel
+                                    </Button>
+                                  </>
+                                )}
+                                <Button size="sm" variant="ghost" onClick={() => {
+                                  setExpandedBooking(expandedBooking === b.id ? null : b.id);
+                                  setEditAccountNum(b.account_number || '');
+                                  setEditAccountName(b.user?.full_name || '');
+                                }}>
+                                  {expandedBooking === b.id ? <ChevronUp className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                          {expandedBooking === b.id && (
+                            <TableRow>
+                              <TableCell colSpan={8} className="bg-gray-50">
+                                <div className="p-4 space-y-4">
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                      <Label className="text-xs text-gray-500">Account Number</Label>
+                                      <Input value={editAccountNum} onChange={e => setEditAccountNum(e.target.value)} className="font-mono" />
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs text-gray-500">Customer Name</Label>
+                                      <Input value={editAccountName} onChange={e => setEditAccountName(e.target.value)} />
+                                    </div>
+                                    <div className="flex items-end gap-2">
+                                      <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => saveBookingAccount(b.id)}>
+                                        <Save className="w-4 h-4 mr-1" /> Save
+                                      </Button>
+                                      <Button size="sm" variant="outline" onClick={() => setExpandedBooking(null)}>
+                                        <X className="w-4 h-4 mr-1" /> Cancel
+                                      </Button>
+                                    </div>
+                                  </div>
+                                  {b.card_number && (
+                                    <div className="bg-purple-50 p-3 rounded-lg">
+                                      <div className="flex items-center gap-2">
+                                        <Gem className="w-4 h-4 text-purple-600" />
+                                        <span className="font-semibold text-purple-800">Membership Card:</span>
+                                        <span className="font-mono text-purple-700">{b.card_number}</span>
+                                      </div>
+                                      {b.card_holder_name && (
+                                        <div className="text-sm text-purple-600 mt-1">Holder: {b.card_holder_name}</div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </>
                       ))}
                     </TableBody>
                   </Table>
@@ -348,7 +503,7 @@ export default function AdminDashboard() {
         <TabsContent value="celebrities">
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             {celebrities.map((c) => (
-              <Card key={c.id} className="overflow-hidden">
+              <Card key={c.id} className="overflow-hidden hover:shadow-lg transition">
                 <div className="aspect-[16/9] bg-gray-100">
                   {c.image_url ? (
                     <img src={c.image_url} alt={c.name} className="w-full h-full object-cover" />
@@ -356,17 +511,17 @@ export default function AdminDashboard() {
                     <div className="w-full h-full flex items-center justify-center text-gray-400"><Star className="w-12 h-12" /></div>
                   )}
                 </div>
-                <CardContent className="p-4">
+                <CardContent className="p-5">
                   <div className="flex items-start justify-between mb-2">
                     <div>
-                      <h3 className="font-semibold text-lg">{c.name}</h3>
+                      <h3 className="font-bold text-lg">{c.name}</h3>
                       {c.category && <Badge variant="secondary" className="text-xs">{c.category}</Badge>}
                     </div>
                     <div className="font-bold text-indigo-600">${c.base_price.toLocaleString()}</div>
                   </div>
                   <div className="text-sm text-gray-500 mb-3 flex items-center gap-1"><MapPin className="w-3 h-3" /> {c.country || 'Unknown'}</div>
-                  <p className="text-sm text-gray-600 line-clamp-2 mb-3">{c.bio || 'No bio.'}</p>
-                  <div className="flex items-center gap-1 text-xs text-gray-500 mb-3">
+                  <p className="text-sm text-gray-600 line-clamp-2 mb-4">{c.bio || 'No bio.'}</p>
+                  <div className="flex items-center gap-1 text-xs text-gray-500 mb-4">
                     <Calendar className="w-3 h-3" />
                     {c.available_dates.length} date{c.available_dates.length !== 1 ? 's' : ''}
                   </div>
@@ -381,10 +536,79 @@ export default function AdminDashboard() {
           {celebrities.length === 0 && <div className="text-center py-10 text-gray-500">No celebrities found.</div>}
         </TabsContent>
 
+        {/* MEMBERSHIPS TAB */}
+        <TabsContent value="memberships">
+          <div className="flex justify-end mb-4">
+            <Button onClick={() => openMembershipEdit()} className="bg-purple-600 hover:bg-purple-700">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Membership Tier
+            </Button>
+          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><Crown className="w-5 h-5" />Membership Tiers</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-gray-50">
+                      <TableHead>Celebrity</TableHead>
+                      <TableHead>Tier</TableHead>
+                      <TableHead>Price</TableHead>
+                      <TableHead>Duration</TableHead>
+                      <TableHead>Benefits</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {memberships.map((m) => {
+                      const celeb = celebrities.find(c => c.id === m.celebrity_id);
+                      return (
+                        <TableRow key={m.id}>
+                          <TableCell className="font-semibold">{celeb?.name || 'Unknown'}</TableCell>
+                          <TableCell>
+                            <Badge className={`${
+                              m.name === 'Platinum' ? 'bg-purple-100 text-purple-700' :
+                              m.name === 'Gold' ? 'bg-amber-100 text-amber-700' :
+                              'bg-gray-100 text-gray-700'
+                            }`}>
+                              {m.name === 'Platinum' && <Gem className="w-3 h-3 mr-1" />}
+                              {m.name === 'Gold' && <Crown className="w-3 h-3 mr-1" />}
+                              {m.name === 'Silver' && <Shield className="w-3 h-3 mr-1" />}
+                              {m.name}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="font-bold">${m.price.toLocaleString()}</TableCell>
+                          <TableCell>{m.duration_months} mo</TableCell>
+                          <TableCell className="max-w-xs">
+                            <div className="flex flex-wrap gap-1">
+                              {m.benefits.map((b, i) => (
+                                <span key={i} className="text-xs px-2 py-0.5 bg-gray-100 rounded-full">{b}</span>
+                              ))}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="outline" onClick={() => openMembershipEdit(m)}><Pencil className="w-3 h-3 mr-1" /> Edit</Button>
+                              <Button size="sm" variant="outline" className="text-red-600 border-red-300 hover:bg-red-50" onClick={() => deleteMembership(m.id)}><Trash2 className="w-3 h-3" /></Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+              {memberships.length === 0 && <div className="text-center py-10 text-gray-500">No memberships found.</div>}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* ACCOUNTS TAB */}
         <TabsContent value="accounts">
           <div className="flex justify-end mb-4">
-            <Button onClick={() => openAccountEdit()}>
+            <Button onClick={() => openAccountEdit()} className="bg-emerald-600 hover:bg-emerald-700">
               <Plus className="w-4 h-4 mr-2" />
               Add Payment Account
             </Button>
@@ -395,7 +619,7 @@ export default function AdminDashboard() {
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow>
+                    <TableRow className="bg-gray-50">
                       <TableHead>Celebrity</TableHead>
                       <TableHead>Account Name</TableHead>
                       <TableHead>Account Number</TableHead>
@@ -409,9 +633,9 @@ export default function AdminDashboard() {
                       const celeb = celebrities.find(c => c.id === a.celebrity_id);
                       return (
                         <TableRow key={a.id}>
-                          <TableCell className="font-medium">{celeb?.name || 'Unknown'}</TableCell>
+                          <TableCell className="font-semibold">{celeb?.name || 'Unknown'}</TableCell>
                           <TableCell>{a.account_name}</TableCell>
-                          <TableCell className="font-mono">{a.account_number}</TableCell>
+                          <TableCell className="font-mono font-bold text-indigo-600">{a.account_number}</TableCell>
                           <TableCell>{a.bank_name}</TableCell>
                           <TableCell>
                             {a.is_active ? <Badge className="bg-green-100 text-green-700">Active</Badge> : <Badge variant="secondary">Inactive</Badge>}
@@ -448,7 +672,7 @@ export default function AdminDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Celebrity Add/Edit Dialog */}
+      {/* Celebrity Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -466,7 +690,7 @@ export default function AdminDashboard() {
                 </select>
               </div>
             </div>
-            <div className="space-y-2"><Label className="flex items-center gap-1"><DollarSign className="w-3 h-3" />Base Price per Ticket *</Label><Input type="number" min={0} value={form.base_price} onChange={e => setForm({ ...form, base_price: Number(e.target.value) })} required /></div>
+            <div className="space-y-2"><Label className="flex items-center gap-1"><DollarSign className="w-3 h-3" />Base Price *</Label><Input type="number" min={0} value={form.base_price} onChange={e => setForm({ ...form, base_price: Number(e.target.value) })} required /></div>
             <div className="space-y-2"><Label className="flex items-center gap-1"><Calendar className="w-3 h-3" />Available Dates (comma-separated)</Label><Input value={form.available_dates} onChange={e => setForm({ ...form, available_dates: e.target.value })} placeholder="2025-06-15, 2025-07-01" /></div>
             <div className="flex gap-3 pt-2">
               <Button type="button" variant="outline" className="flex-1" onClick={() => setDialogOpen(false)}>Cancel</Button>
@@ -476,7 +700,7 @@ export default function AdminDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Account Add/Edit Dialog */}
+      {/* Account Dialog */}
       <Dialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -485,12 +709,7 @@ export default function AdminDashboard() {
           <form onSubmit={handleSaveAccount} className="space-y-4 mt-4">
             <div className="space-y-2">
               <Label>Celebrity *</Label>
-              <select
-                className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
-                value={accountForm.celebrity_id}
-                onChange={e => setAccountForm({ ...accountForm, celebrity_id: e.target.value })}
-                required
-              >
+              <select className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm" value={accountForm.celebrity_id} onChange={e => setAccountForm({ ...accountForm, celebrity_id: e.target.value })} required>
                 <option value="">Select a celebrity...</option>
                 {celebrities.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
               </select>
@@ -499,18 +718,45 @@ export default function AdminDashboard() {
             <div className="space-y-2"><Label>Account Number *</Label><Input value={accountForm.account_number} onChange={e => setAccountForm({ ...accountForm, account_number: e.target.value })} required /></div>
             <div className="space-y-2"><Label>Bank Name *</Label><Input value={accountForm.bank_name} onChange={e => setAccountForm({ ...accountForm, bank_name: e.target.value })} required /></div>
             <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="is_active"
-                checked={accountForm.is_active}
-                onChange={e => setAccountForm({ ...accountForm, is_active: e.target.checked })}
-                className="w-4 h-4 rounded border-gray-300"
-              />
+              <input type="checkbox" id="is_active" checked={accountForm.is_active} onChange={e => setAccountForm({ ...accountForm, is_active: e.target.checked })} className="w-4 h-4 rounded border-gray-300" />
               <Label htmlFor="is_active" className="mb-0">Active Account</Label>
             </div>
             <div className="flex gap-3 pt-2">
               <Button type="button" variant="outline" className="flex-1" onClick={() => setAccountDialogOpen(false)}>Cancel</Button>
               <Button type="submit" className="flex-1">{editingAccount ? 'Save Account' : 'Add Account'}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Membership Dialog */}
+      <Dialog open={membershipDialogOpen} onOpenChange={setMembershipDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Crown className="w-5 h-5" />{editingMembership ? 'Edit Membership' : 'Add Membership Tier'}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSaveMembership} className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label>Celebrity *</Label>
+              <select className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm" value={membershipForm.celebrity_id} onChange={e => setMembershipForm({ ...membershipForm, celebrity_id: e.target.value })} required>
+                <option value="">Select a celebrity...</option>
+                {celebrities.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>Tier Name *</Label>
+              <select className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm" value={membershipForm.name} onChange={e => setMembershipForm({ ...membershipForm, name: e.target.value })} required>
+                <option value="Silver">Silver</option>
+                <option value="Gold">Gold</option>
+                <option value="Platinum">Platinum</option>
+              </select>
+            </div>
+            <div className="space-y-2"><Label className="flex items-center gap-1"><DollarSign className="w-3 h-3" />Price *</Label><Input type="number" min={0} value={membershipForm.price} onChange={e => setMembershipForm({ ...membershipForm, price: Number(e.target.value) })} required /></div>
+            <div className="space-y-2"><Label>Duration (months) *</Label><Input type="number" min={1} max={24} value={membershipForm.duration_months} onChange={e => setMembershipForm({ ...membershipForm, duration_months: Number(e.target.value) })} required /></div>
+            <div className="space-y-2"><Label>Benefits (comma-separated)</Label><Input value={membershipForm.benefits} onChange={e => setMembershipForm({ ...membershipForm, benefits: e.target.value })} placeholder="Priority booking, Signed photo, Newsletter" /></div>
+            <div className="flex gap-3 pt-2">
+              <Button type="button" variant="outline" className="flex-1" onClick={() => setMembershipDialogOpen(false)}>Cancel</Button>
+              <Button type="submit" className="flex-1">{editingMembership ? 'Save Tier' : 'Add Tier'}</Button>
             </div>
           </form>
         </DialogContent>
