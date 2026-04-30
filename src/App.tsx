@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import Navbar from '@/components/Navbar';
 import ChatWidget from '@/components/ChatWidget';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import Home from '@/pages/Home';
 import Celebrities from '@/pages/Celebrities';
 import CelebrityDetail from '@/pages/CelebrityDetail';
@@ -28,18 +29,20 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AppRoutes() {
   return (
     <div className="min-h-screen bg-gray-50">
-      <Navbar />
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/celebrities" element={<Celebrities />} />
-        <Route path="/celebrities/:id" element={<CelebrityDetail />} />
-        <Route path="/booking/:id" element={<ProtectedRoute><Booking /></ProtectedRoute>} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
-      </Routes>
-      <ChatWidget />
+      <ErrorBoundary>
+        <Navbar />
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/celebrities" element={<Celebrities />} />
+          <Route path="/celebrities/:id" element={<CelebrityDetail />} />
+          <Route path="/booking/:id" element={<ProtectedRoute><Booking /></ProtectedRoute>} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+        </Routes>
+        <ChatWidget />
+      </ErrorBoundary>
     </div>
   );
 }

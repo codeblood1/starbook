@@ -3,21 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-// Prevent crash when env vars are missing - create a dummy client
-let client: any;
-if (!supabaseUrl || !supabaseKey) {
-  console.error('[StarBooker] Missing Supabase environment variables. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file.');
-  // Create a dummy client that won't crash the app
-  client = createClient('https://placeholder.supabase.co', 'placeholder-key');
-} else {
-  client = createClient(supabaseUrl, supabaseKey);
-}
-
-export const supabase = client;
-
-export function isSupabaseConfigured(): boolean {
-  return !!(supabaseUrl && supabaseKey);
-}
+export const supabase = createClient(supabaseUrl, supabaseKey);
 
 export interface Profile {
   id: string;
