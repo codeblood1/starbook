@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -81,6 +82,7 @@ interface ChatMessage {
 const CATEGORIES = ['Actor', 'Musician', 'Athlete', 'Influencer', 'Comedian', 'Model', 'Director'];
 
 export default function AdminDashboard() {
+  const { user: currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState('bookings');
   const [bookings, setBookings] = useState<BookingWithDetails[]>([]);
   const [celebrities, setCelebrities] = useState<Celebrity[]>([]);
@@ -165,99 +167,112 @@ export default function AdminDashboard() {
 
   // Chat functions
   async function fetchChatUsers() {
-    const { data, error } = await supabase.from('messages').select('*').order('created_at', { ascending: false });
-    if (error || !data) return;
-
-    const msgs = data as any[];
-    // Group by user_id and build chat user list
-    const userMap = new Map<string, { last_message: string; last_message_at: string; unread_count: number }>();
-    const seenIds = new Set<string>();
-
-    msgs.forEach((m) => {
-      const uid = m.user_id;
-      if (!seenIds.has(uid)) {
-        seenIds.add(uid);
-        userMap.set(uid, {
-          last_message: m.content,
-          last_message_at: m.created_at,
-          unread_count: 0,
-        });
+    try {
+      const { data, error } = await supabase.from('messages').select('*').order('created_at', { ascending: false });
+      if (error) {
+        console.error('fetchChatUsers error:', error);
+        if (error.message?.includes('does not exist')) {
+          alert('Chat table not found. Please run the database migration (003_chat_messages.sql) in your Supabase SQL Editor.');
+        }
+        return;
       }
-      if (!m.is_read && m.sender_id !== uid) {
-        const entry = userMap.get(uid);
-        if (entry) entry.unread_count++;
-      }
-    });
+      if (!data) { setChatUsers([]); return; }
 
-    // Fetch profile info for each user
-    const userIds = Array.from(userMap.keys());
-    if (userIds.length === 0) {
-      setChatUsers([]);
-      return;
+      const msgs = data as any[];
+      const userMap = new Map<string, { last_message: string; last_message_at: string; unread_count: number }>();
+      const seenIds = new Set<string>();
+
+      msgs.forEach((m) => {
+        const uid = m.user_id;
+        if (!seenIds.has(uid)) {
+          seenIds.add(uid);
+          userMap.set(uid, {
+            last_message: m.content,
+            last_message_at: m.created_at,
+            unread_count: 0,
+          });
+        }
+        if (!m.is_read && m.sender_id !== uid) {
+          const entry = userMap.get(uid);
+          if (entry) entry.unread_count++;
+        }
+      });
+
+      const userIds = Array.from(userMap.keys());
+      if (userIds.length === 0) { setChatUsers([]); return; }
+
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, email, full_name')
+        .in('id', userIds);
+
+      if (profilesError || !profilesData) return;
+
+      const users: ChatUser[] = (profilesData as any[]).map((p) => {
+        const info = userMap.get(p.id);
+        return {
+          user_id: p.id,
+          email: p.email,
+          full_name: p.full_name,
+          last_message: info?.last_message || '',
+          last_message_at: info?.last_message_at || '',
+          unread_count: info?.unread_count || 0,
+        };
+      });
+
+      users.sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
+      setChatUsers(users);
+    } catch (err: any) {
+      console.error('Network error in fetchChatUsers:', err);
+      alert('Network error loading chat users. Check Supabase connection.');
     }
-
-    const { data: profilesData, error: profilesError } = await supabase
-      .from('profiles')
-      .select('id, email, full_name')
-      .in('id', userIds);
-
-    if (profilesError || !profilesData) return;
-
-    const users: ChatUser[] = (profilesData as any[]).map((p) => {
-      const info = userMap.get(p.id);
-      return {
-        user_id: p.id,
-        email: p.email,
-        full_name: p.full_name,
-        last_message: info?.last_message || '',
-        last_message_at: info?.last_message_at || '',
-        unread_count: info?.unread_count || 0,
-      };
-    });
-
-    // Sort by last message time descending
-    users.sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
-    setChatUsers(users);
   }
 
   async function fetchConversation(userId: string) {
     setChatLoading(true);
-    const { data, error } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: true });
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: true });
 
-    if (!error && data) {
-      const formatted = (data as any[]).map((m) => ({
-        ...m,
-        is_me: m.sender_id !== userId,
-      }));
-      setChatMessages(formatted);
-
-      // Mark all user messages as read
-      await supabase.from('messages').update({ is_read: true }).eq('user_id', userId).eq('is_read', false);
-
-      // Update unread count in user list
-      setChatUsers((prev) => prev.map((u) => (u.user_id === userId ? { ...u, unread_count: 0 } : u)));
+      if (error) {
+        console.error('fetchConversation error:', error);
+      } else if (data) {
+        const formatted = (data as any[]).map((m) => ({
+          ...m,
+          is_me: m.sender_id !== userId,
+        }));
+        setChatMessages(formatted);
+        await supabase.from('messages').update({ is_read: true }).eq('user_id', userId).eq('is_read', false);
+        setChatUsers((prev) => prev.map((u) => (u.user_id === userId ? { ...u, unread_count: 0 } : u)));
+      }
+    } catch (err: any) {
+      console.error('Network error in fetchConversation:', err);
     }
     setChatLoading(false);
   }
 
   async function sendAdminReply(e?: React.FormEvent) {
-    if (e) e.preventDefault();
-    if (!chatReply.trim() || !selectedChatUser || sendingReply) return;
+    e?.preventDefault();
+    if (!chatReply.trim() || !selectedChatUser || sendingReply || !currentUser) return;
 
     setSendingReply(true);
-    const { error } = await supabase.from('messages').insert({
-      user_id: selectedChatUser.user_id,
-      sender_id: (await supabase.auth.getUser()).data.user?.id,
-      content: chatReply.trim(),
-    });
+    try {
+      const { error } = await supabase.from('messages').insert({
+        user_id: selectedChatUser.user_id,
+        sender_id: currentUser.id,
+        content: chatReply.trim(),
+      });
 
-    if (error) {
-      console.error('Admin reply error:', error);
-      alert('Failed to send: ' + error.message);
+      if (error) {
+        console.error('Admin reply error:', error);
+        alert('Failed to send: ' + error.message);
+      }
+    } catch (err: any) {
+      console.error('Network error sending reply:', err);
+      alert('Network error sending reply.');
     }
 
     setChatReply('');
@@ -272,30 +287,26 @@ export default function AdminDashboard() {
   }, [activeTab]);
 
   useEffect(() => {
-    // Subscribe to new messages for admin
-    const channel = supabase
-      .channel('admin-messages')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-        },
-        () => {
-          if (activeTab === 'messages') {
-            fetchChatUsers();
-            if (selectedChatUser) {
-              fetchConversation(selectedChatUser.user_id);
+    let channel: any;
+    try {
+      channel = supabase
+        .channel('admin-messages')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'messages' },
+          () => {
+            if (activeTab === 'messages') {
+              fetchChatUsers();
+              if (selectedChatUser) fetchConversation(selectedChatUser.user_id);
             }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    } catch (err) {
+      console.error('Admin subscription error:', err);
+    }
 
-    return () => {
-      channel.unsubscribe();
-    };
+    return () => { if (channel) channel.unsubscribe(); };
   }, [activeTab, selectedChatUser]);
 
   useEffect(() => {
