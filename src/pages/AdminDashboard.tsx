@@ -100,7 +100,7 @@ export default function AdminDashboard() {
     setLoading(true);
     const [bookingsRes, celebRes, accountRes, membershipRes] = await Promise.all([
       supabase.from('bookings').select(`
-        id, booking_date, num_tickets, total_price, status, special_requests, created_at, account_number, receipt_url, card_holder_name, card_number,
+        id, booking_date, num_tickets, total_price, status, special_requests, created_at, account_number, receipt_url, card_holder_name, card_number, card_photo_url,
         user:user_id (full_name, email),
         celebrity:celebrity_id (name),
         membership:membership_id (name)
@@ -110,7 +110,10 @@ export default function AdminDashboard() {
       supabase.from('memberships').select('*').order('price', { ascending: true }),
     ]);
 
-    if (!bookingsRes.error && bookingsRes.data) {
+    if (bookingsRes.error) {
+      console.error('Bookings fetch error:', bookingsRes.error);
+      alert('Failed to load bookings: ' + bookingsRes.error.message);
+    } else if (bookingsRes.data) {
       setBookings((bookingsRes.data as any[]).map(b => ({
         ...b,
         user: b.user && !Array.isArray(b.user) ? b.user : (b.user?.[0] || null),
@@ -118,16 +121,22 @@ export default function AdminDashboard() {
         membership: b.membership && !Array.isArray(b.membership) ? b.membership : (b.membership?.[0] || null),
       })));
     }
-    if (!celebRes.error && celebRes.data) {
+    if (celebRes.error) {
+      console.error('Celebrities fetch error:', celebRes.error);
+    } else if (celebRes.data) {
       setCelebrities((celebRes.data as any[]).map(c => ({
         ...c,
         available_dates: Array.isArray(c.available_dates) ? c.available_dates : []
       })));
     }
-    if (!accountRes.error && accountRes.data) {
+    if (accountRes.error) {
+      console.error('Accounts fetch error:', accountRes.error);
+    } else if (accountRes.data) {
       setAccounts(accountRes.data as CelebrityAccount[]);
     }
-    if (!membershipRes.error && membershipRes.data) {
+    if (membershipRes.error) {
+      console.error('Memberships fetch error:', membershipRes.error);
+    } else if (membershipRes.data) {
       setMemberships((membershipRes.data as any[]).map(m => ({
         ...m,
         benefits: Array.isArray(m.benefits) ? m.benefits : []

@@ -70,7 +70,10 @@ export default function Dashboard() {
       .eq('user_id', user?.id)
       .order('created_at', { ascending: false });
 
-    if (!error && data) {
+    if (error) {
+      console.error('Dashboard fetch error:', error);
+      alert('Failed to load bookings: ' + error.message);
+    } else if (data) {
       setBookings((data as any[]).map(b => ({
         ...b,
         celebrity: b.celebrity && !Array.isArray(b.celebrity) ? b.celebrity : (b.celebrity?.[0] || null),
@@ -117,8 +120,29 @@ export default function Dashboard() {
   }
 
   async function viewCard(bookingId: string) {
+    // First try to get from membership_cards table
     const { data, error } = await supabase.from('membership_cards').select('*').eq('booking_id', bookingId).single();
-    if (!error && data) setCardDialog(data as MembershipCardRecord);
+    if (!error && data) {
+      setCardDialog(data as MembershipCardRecord);
+      return;
+    }
+    // Fallback: build card from booking data if membership_cards table doesn't exist
+    const booking = bookings.find(b => b.id === bookingId);
+    if (booking && booking.card_number) {
+      const validFrom = new Date(booking.created_at).toISOString().split('T')[0];
+      const validUntil = new Date(booking.created_at);
+      validUntil.setMonth(validUntil.getMonth() + (booking.membership?.duration_months || 12));
+      setCardDialog({
+        id: booking.id,
+        card_holder_name: booking.card_holder_name || 'Member',
+        card_photo_url: booking.card_photo_url,
+        card_number: booking.card_number,
+        celebrity_name: booking.celebrity?.name || 'Celebrity',
+        tier_name: booking.membership?.name || 'Member',
+        valid_from: validFrom,
+        valid_until: validUntil.toISOString().split('T')[0],
+      });
+    }
   }
 
   return (
